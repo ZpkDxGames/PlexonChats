@@ -2,230 +2,188 @@ package com.antondev.chats.config;
 
 import com.antondev.chats.ChatChannel;
 import com.antondev.chats.PlexonChats;
+import com.antondev.chats.text.ComponentTemplate;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Registry;
 import org.bukkit.Sound;
-import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.InvalidConfigurationException;
+import org.bukkit.configuration.file.YamlConfiguration;
 
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 
-/**
- * Manages all configuration values with cached access for performance.
- */
-public class ConfigManager {
-
+/** Immutable-after-publication snapshot: invalid reloads never replace the live configuration. */
+public final class ConfigManager {
     private final PlexonChats plugin;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
-
-    // Cached values
-    private ChatChannel defaultChannel;
-    private boolean localEnabled;
-    private int localRadius;
-    private String localFormat;
-    private String localShortcutPrefix;
-    private String noRecipientsMessage;
-
-    private boolean globalEnabled;
-    private String globalFormat;
-    private String globalShortcutPrefix;
-
-    private boolean mentionsEnabled;
-    private String mentionFormat;
-    private String mentionActionbarMessage;
-    private Sound mentionSound;
-    private float mentionSoundVolume;
-    private float mentionSoundPitch;
-
-    private boolean itemDisplayEnabled;
-    private List<String> itemTriggers;
-    private String itemFormat;
-    private String emptyHandMessage;
-
-    private String guiTitle;
-    private int guiRows;
-
-    private String messagePrefix;
-    private String channelSwitchedMsg;
-    private String channelAlreadyMsg;
-    private String noPermissionMsg;
-    private String configReloadedMsg;
-    private String playerOnlyMsg;
-    private String unknownChannelMsg;
-    private String announcementFormat;
-    private String playerNotFoundMsg;
-    private String noReplyTargetMsg;
+    private final ComponentTemplate templates = new ComponentTemplate(miniMessage);
+    private final YamlConfiguration defaults = new YamlConfiguration();
+    private volatile YamlConfiguration config;
+    private long revision;
 
     public ConfigManager(PlexonChats plugin) {
         this.plugin = plugin;
-        loadConfig();
+        defaults.options().parseComments(true);
+        try (var reader = new InputStreamReader(Objects.requireNonNull(plugin.getResource("config.yml")), StandardCharsets.UTF_8)) {
+            defaults.load(reader);
+        } catch (IOException | InvalidConfigurationException ex) {
+            throw new IllegalStateException("Cannot read bundled configuration", ex);
+        }
+        if (!loadConfig()) throw new IllegalStateException("Invalid config.yml; repair it before enabling PlexonChats.");
     }
 
-    public void loadConfig() {
+    public boolean loadConfig() {
         plugin.saveDefaultConfig();
-        plugin.reloadConfig();
-        FileConfiguration config = plugin.getConfig();
-
-        // Default channel
-        String defChannel = config.getString("default-channel", "LOCAL");
-        defaultChannel = ChatChannel.fromName(defChannel);
-        if (defaultChannel == null) defaultChannel = ChatChannel.LOCAL;
-
-        // Local channel
-        localEnabled = config.getBoolean("channels.local.enabled", true);
-        localRadius = Math.max(0, config.getInt("channels.local.radius", 100));
-        localFormat = config.getString("channels.local.format",
-                "<gray>[<white>Local<gray>] <gray>{player} <dark_gray>» <gray>{message}");
-        localShortcutPrefix = config.getString("channels.local.shortcut-prefix", "");
-        noRecipientsMessage = config.getString("channels.local.no-recipients-message",
-                "<gray><italic>No one is nearby to hear you...");
-
-        // Global channel
-        globalEnabled = config.getBoolean("channels.global.enabled", true);
-        globalFormat = config.getString("channels.global.format",
-                "<gold>[<yellow>Global<gold>] <white>{player} <dark_gray>» <white>{message}");
-        globalShortcutPrefix = config.getString("channels.global.shortcut-prefix", "!");
-
-        // Mentions
-        mentionsEnabled = config.getBoolean("mentions.enabled", true);
-        mentionFormat = config.getString("mentions.format", "<gradient:#00e6ff:#00ffac>@{player}</gradient>");
-        mentionActionbarMessage = config.getString("mentions.actionbar-message",
-            "<gray>[<gradient:#00e6ff:#00ffac>{player}</gradient><gray>] mentioned you in chat!");
-        mentionSound = resolveSound(config.getString("mentions.sound", "ENTITY_EXPERIENCE_ORB_PICKUP"));
-        if (mentionSound == null) {
-            mentionSound = Sound.ENTITY_EXPERIENCE_ORB_PICKUP;
+        Path path = plugin.getDataFolder().toPath().resolve("config.yml");
+        try {
+            YamlConfiguration candidate = read(path);
+            boolean upgraded = ConfigUpgrader.upgrade(candidate, defaults);
+            validate(candidate);
+            if (upgraded) {
+                Path backup = path.resolveSibling("config-before-v2-" + System.currentTimeMillis() + ".yml");
+                Files.copy(path, backup);
+                AtomicFiles.write(path, candidate.saveToString());
+                plugin.getLogger().info("Added missing config options. Original saved as " + backup.getFileName());
+            }
+            config = candidate;
+            revision++;
+            return true;
+        } catch (IOException | InvalidConfigurationException | IllegalArgumentException ex) {
+            plugin.getLogger().severe("Configuration not applied: " + ex.getMessage());
+            return false;
         }
-        mentionSoundVolume = (float) config.getDouble("mentions.sound-volume", 1.0);
-        mentionSoundPitch = (float) config.getDouble("mentions.sound-pitch", 1.2);
+    }
 
-        // Item display
-        itemDisplayEnabled = config.getBoolean("item-display.enabled", true);
-        itemTriggers = config.getStringList("item-display.triggers");
-        if (itemTriggers.isEmpty()) {
-            itemTriggers = List.of("[item]", "@hand");
+    public boolean saveSetting(String path, Object value) {
+        Path file = plugin.getDataFolder().toPath().resolve("config.yml");
+        try {
+            YamlConfiguration candidate = read(file);
+            candidate.set(path, value);
+            validate(candidate);
+            AtomicFiles.write(file, candidate.saveToString());
+            return true;
+        } catch (IOException | InvalidConfigurationException | IllegalArgumentException ex) {
+            plugin.getLogger().warning("Setting not saved: " + ex.getMessage());
+            return false;
         }
-        itemFormat = config.getString("item-display.format",
-                "<aqua><bold>[<hover:show_item:'{item_data}'>{item_name}</hover>]</bold></aqua>");
-        emptyHandMessage = config.getString("item-display.empty-hand-message",
-                "<gray><italic>[Empty Hand]</italic></gray>");
-
-        // GUI
-        guiTitle = config.getString("gui.title",
-                "<gradient:#FF6B6B:#4ECDC4><bold>PlexonChats</bold></gradient>");
-        guiRows = Math.min(6, Math.max(3, config.getInt("gui.rows", 3)));
-
-        // Messages
-        messagePrefix = config.getString("messages.prefix",
-            "<b><gradient:#00e6ff:#00ffac>Plexon Chats</gradient></b> <dark_gray>» ");
-        channelSwitchedMsg = config.getString("messages.channel-switched",
-                "<green>You switched to the <white>{channel}<green> channel.");
-        channelAlreadyMsg = config.getString("messages.channel-already",
-                "<yellow>You are already in the <white>{channel}<yellow> channel.");
-        noPermissionMsg = config.getString("messages.no-permission",
-                "<red>You don't have permission to do that.");
-        configReloadedMsg = config.getString("messages.config-reloaded",
-                "<green>Configuration reloaded successfully!");
-        playerOnlyMsg = config.getString("messages.player-only",
-                "<red>This command can only be used by players.");
-        unknownChannelMsg = config.getString("messages.unknown-channel",
-                "<red>Unknown channel: <white>{channel}");
-        announcementFormat = config.getString("messages.announcement-format",
-            "{message}");
-        playerNotFoundMsg = config.getString("messages.player-not-found",
-            "<red>Player not found: <white>{player}");
-        noReplyTargetMsg = config.getString("messages.no-reply-target",
-            "<red>You have no one to reply to.");
     }
 
-    // ---- Component builders ----
-
-    public Component formatMessage(String miniMessageStr) {
-        return miniMessage.deserialize(miniMessageStr);
+    private static YamlConfiguration read(Path path) throws IOException, InvalidConfigurationException {
+        YamlConfiguration yaml = new YamlConfiguration();
+        yaml.options().parseComments(true);
+        yaml.load(path.toFile());
+        return yaml;
     }
 
-    public Component getPrefixed(String message) {
-        return miniMessage.deserialize(messagePrefix + message);
+    public static void validate(YamlConfiguration yaml) {
+        if (yaml.getInt("config-version", 1) > ConfigUpgrader.VERSION) {
+            throw new IllegalArgumentException("This configuration was made by a newer PlexonChats version.");
+        }
+        for (String path : List.of("channels", "channels.local", "channels.global", "chat-components", "gui",
+                "gui.items", "gui.admin", "gui.admin.items", "gui.creator", "gui.creator.items",
+                "auto-messages", "auto-messages.groups", "integrations", "integrations.discordsrv", "messages")) {
+            if (yaml.contains(path) && !yaml.isConfigurationSection(path)) {
+                throw new IllegalArgumentException(path + " must be a YAML section (use {} for an empty collection).");
+            }
+        }
+        for (String channel : List.of("local", "global")) {
+            String format = yaml.getString("channels." + channel + ".format", "{player}: {message}");
+            if (!format.contains("{message}")) throw new IllegalArgumentException("channels." + channel + ".format must include {message}.");
+        }
     }
 
-    public Component getChannelSwitched(ChatChannel channel) {
-        return getPrefixed(channelSwitchedMsg.replace("{channel}", channel.getDisplayName()));
+    public String string(String path, String fallback) { return config.getString(path, defaults.getString(path, fallback)); }
+    public boolean bool(String path, boolean fallback) { return config.getBoolean(path, defaults.getBoolean(path, fallback)); }
+    public int integer(String path, int fallback, int min, int max) {
+        return Math.clamp(config.getInt(path, defaults.getInt(path, fallback)), min, max);
     }
-
-    public Component getChannelAlready(ChatChannel channel) {
-        return getPrefixed(channelAlreadyMsg.replace("{channel}", channel.getDisplayName()));
+    public long number(String path, long fallback, long min, long max) {
+        return Math.clamp(config.getLong(path, defaults.getLong(path, fallback)), min, max);
     }
-
-    public Component getNoPermission() {
-        return getPrefixed(noPermissionMsg);
+    public double decimal(String path, double fallback, double min, double max) {
+        double value = config.getDouble(path, defaults.getDouble(path, fallback));
+        return Double.isFinite(value) ? Math.clamp(value, min, max) : fallback;
     }
-
-    public Component getConfigReloaded() {
-        return getPrefixed(configReloadedMsg);
+    public List<String> lines(String path) {
+        if (config.isString(path)) return List.of(config.getString(path, ""));
+        return config.contains(path) ? List.copyOf(config.getStringList(path)) : List.copyOf(defaults.getStringList(path));
     }
-
-    public Component getPlayerOnly() {
-        return getPrefixed(playerOnlyMsg);
-    }
-
-    public Component getUnknownChannel(String channel) {
-        return getPrefixed(unknownChannelMsg.replace("{channel}", channel));
-    }
-
-    public Component getPlayerNotFound(String playerName) {
-        return getPrefixed(playerNotFoundMsg.replace("{player}", playerName));
-    }
-
-    public Component getNoReplyTarget() {
-        return getPrefixed(noReplyTargetMsg);
-    }
-
-    public Component getNoRecipients() {
-        return miniMessage.deserialize(noRecipientsMessage);
-    }
-
-    public Component getMentionActionbar(String senderName) {
-        return miniMessage.deserialize(mentionActionbarMessage.replace("{player}", senderName));
-    }
-
-    // ---- Getters ----
-
+    public ConfigurationSection section(String path) { return config.getConfigurationSection(path); }
+    public long revision() { return revision; }
     public MiniMessage getMiniMessage() { return miniMessage; }
-    public ChatChannel getDefaultChannel() { return defaultChannel; }
 
-    public boolean isLocalEnabled() { return localEnabled; }
-    public int getLocalRadius() { return localRadius; }
-    public String getLocalFormat() { return localFormat; }
-    public String getLocalShortcutPrefix() { return localShortcutPrefix; }
+    public Component formatMessage(String text) {
+        try { return miniMessage.deserialize(text); }
+        catch (IllegalArgumentException ex) { return Component.text(text); }
+    }
+    public Component getPrefixed(String text) { return formatMessage(string("messages.prefix", "") + text); }
+    public Component message(String key) { return message(key, Map.of()); }
+    public Component message(String key, Map<String, String> values) {
+        Map<String, Component> components = new LinkedHashMap<>();
+        values.forEach((k, v) -> components.put(k, Component.text(v)));
+        String source = string("messages.prefix", "") + string("messages." + key, key);
+        try { return templates.render(source, components); }
+        catch (IllegalArgumentException ex) { return Component.text(source); }
+    }
+    public Component getChannelSwitched(ChatChannel channel) { return message("channel-switched", Map.of("channel", channel.getDisplayName())); }
+    public Component getChannelAlready(ChatChannel channel) { return message("channel-already", Map.of("channel", channel.getDisplayName())); }
+    public Component getNoPermission() { return message("no-permission"); }
+    public Component getConfigReloaded() { return message("config-reloaded"); }
+    public Component getPlayerOnly() { return message("player-only"); }
+    public Component getUnknownChannel(String value) { return message("unknown-channel", Map.of("channel", value)); }
+    public Component getPlayerNotFound(String value) { return message("player-not-found", Map.of("player", value)); }
+    public Component getNoReplyTarget() { return message("no-reply-target"); }
+    public Component getNoRecipients() { return formatMessage(string("channels.local.no-recipients-message", "")); }
+    public Component getMentionActionbar(String value) {
+        return templates.render(string("mentions.actionbar-message", "{player} mentioned you"), Map.of("player", Component.text(value)));
+    }
 
-    public boolean isGlobalEnabled() { return globalEnabled; }
-    public String getGlobalFormat() { return globalFormat; }
-    public String getGlobalShortcutPrefix() { return globalShortcutPrefix; }
+    public ChatChannel getDefaultChannel() {
+        ChatChannel channel = ChatChannel.fromName(string("default-channel", "LOCAL"));
+        if (channel == null) channel = ChatChannel.LOCAL;
+        return isChannelEnabled(channel) ? channel : (isGlobalEnabled() ? ChatChannel.GLOBAL : ChatChannel.LOCAL);
+    }
+    public boolean isChannelEnabled(ChatChannel channel) { return channel == ChatChannel.GLOBAL ? isGlobalEnabled() : isLocalEnabled(); }
+    public boolean isLocalEnabled() { return bool("channels.local.enabled", true); }
+    public int getLocalRadius() { return integer("channels.local.radius", 100, 0, 100_000); }
+    public String getLocalFormat() { return string("channels.local.format", "{player}: {message}"); }
+    public String getLocalShortcutPrefix() { return string("channels.local.shortcut-prefix", ""); }
+    public boolean isGlobalEnabled() { return bool("channels.global.enabled", true); }
+    public String getGlobalFormat() { return string("channels.global.format", "{player}: {message}"); }
+    public String getGlobalShortcutPrefix() { return string("channels.global.shortcut-prefix", "!"); }
+    public boolean isMentionsEnabled() { return bool("mentions.enabled", true); }
+    public String getMentionFormat() { return string("mentions.format", "<aqua>@{player}</aqua>"); }
+    public Sound getMentionSound() { return resolveSound(string("mentions.sound", "block.note_block.pling")); }
+    public float getMentionSoundVolume() { return (float) decimal("mentions.sound-volume", 1, 0, 10); }
+    public float getMentionSoundPitch() { return (float) decimal("mentions.sound-pitch", 1.5, 0, 2); }
+    public boolean isItemDisplayEnabled() { return bool("item-display.enabled", true); }
+    public List<String> getItemTriggers() { return lines("item-display.triggers").stream().filter(s -> !s.isBlank()).limit(16).toList(); }
+    public String getItemFormat() { return string("item-display.format", "<yellow>{item_name}</yellow> <gray>x{amount}"); }
+    public String getEmptyHandMessage() { return string("item-display.empty-hand-message", "<gray>[Empty Hand]"); }
+    public String getGuiTitle() { return string("gui.title", "PlexonChats"); }
+    public int getGuiRows() { return integer("gui.rows", 3, 1, 6); }
+    public String getAnnouncementFormat() { return string("messages.announcement-format", "{message}"); }
 
-    public boolean isMentionsEnabled() { return mentionsEnabled; }
-    public String getMentionFormat() { return mentionFormat; }
-    public Sound getMentionSound() { return mentionSound; }
-    public float getMentionSoundVolume() { return mentionSoundVolume; }
-    public float getMentionSoundPitch() { return mentionSoundPitch; }
-
-    public boolean isItemDisplayEnabled() { return itemDisplayEnabled; }
-    public List<String> getItemTriggers() { return itemTriggers; }
-    public String getItemFormat() { return itemFormat; }
-    public String getEmptyHandMessage() { return emptyHandMessage; }
-
-    public String getGuiTitle() { return guiTitle; }
-    public int getGuiRows() { return guiRows; }
-    public String getAnnouncementFormat() { return announcementFormat; }
-
-    private Sound resolveSound(String soundValue) {
-        NamespacedKey key = NamespacedKey.fromString(soundValue);
-        if (key == null) {
-            key = NamespacedKey.minecraft(soundValue.toLowerCase(Locale.ROOT));
-        }
-        if (key == null) {
-            key = NamespacedKey.fromString(soundValue.toLowerCase(Locale.ROOT));
-        }
-        return key == null ? null : Registry.SOUNDS.get(key);
+    public Sound resolveSound(String value) {
+        if (value == null || value.isBlank() || value.equalsIgnoreCase("NONE")) return null;
+        try {
+            if (!value.contains(":") && value.equals(value.toUpperCase(Locale.ROOT))) {
+                try { return (Sound) Sound.class.getField(value).get(null); }
+                catch (ReflectiveOperationException ignored) { }
+            }
+            NamespacedKey key = NamespacedKey.fromString(value.toLowerCase(Locale.ROOT));
+            return key == null ? null : Registry.SOUNDS.get(key);
+        } catch (IllegalArgumentException ex) { return null; }
     }
 }

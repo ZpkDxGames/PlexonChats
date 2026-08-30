@@ -2,61 +2,37 @@ package com.antondev.chats.chat;
 
 import com.antondev.chats.ChatChannel;
 import com.antondev.chats.PlexonChats;
-import com.antondev.chats.player.PlayerInfoService;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.event.ClickEvent;
-import net.kyori.adventure.text.event.HoverEvent;
-import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.entity.Player;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
 
-/**
- * Builds interactive chat components used in public channels.
- */
-public class ChatComponentFactory {
-
+/** Configured layouts with independently configurable interactive components. */
+public final class ChatComponentFactory {
     private final PlexonChats plugin;
+    public ChatComponentFactory(PlexonChats plugin) { this.plugin = plugin; }
 
-    public ChatComponentFactory(PlexonChats plugin) {
-        this.plugin = plugin;
+    public Component buildPublicMessage(Player sender, ChatChannel channel, Component message) {
+        String id = channel.name().toLowerCase(Locale.ROOT);
+        Map<String, Component> values = new HashMap<>();
+        values.put("channel", Component.text(channel.getDisplayName()));
+        values.put("channel_id", Component.text(id));
+        values.put("player", buildPlayerComponent(sender));
+        values.put("message", message);
+        var text = plugin.getText();
+        var config = plugin.getConfigManager();
+        Component badge = text.render(config.string("channels." + id + ".badge", "[" + id + "]"), sender, values);
+        values.put("channel_badge", text.interactive(badge, "chat-components.channel", sender, values));
+        Component separator = text.render(config.string("chat-components.separator.format", " » "), sender, values);
+        values.put("separator", text.interactive(separator, "chat-components.separator", sender, values));
+        String format = channel == ChatChannel.GLOBAL ? config.getGlobalFormat() : config.getLocalFormat();
+        return text.render(format, sender, values);
     }
 
-    public Component buildPublicMessage(Player sender, ChatChannel channel, Component messageComponent) {
-        MiniMessage mm = plugin.getConfigManager().getMiniMessage();
-
-        Component channelBadge = buildChannelBadge(channel);
-        Component playerComponent = buildPlayerComponent(sender);
-        Component separator = mm.deserialize(" <dark_gray>» </dark_gray>")
-                .hoverEvent(HoverEvent.showText(mm.deserialize(
-                        "<gray>Quick message <white>" + sender.getName())))
-                .clickEvent(ClickEvent.suggestCommand("/msg " + sender.getName() + " "));
-
-        return channelBadge.append(Component.space())
-                .append(playerComponent)
-                .append(separator)
-                .append(messageComponent);
-    }
-
-    private Component buildChannelBadge(ChatChannel channel) {
-        MiniMessage mm = plugin.getConfigManager().getMiniMessage();
-
-        if (channel == ChatChannel.GLOBAL) {
-            return mm.deserialize("<gradient:#6ea8ff:#88beff>[G]</gradient>")
-                    .hoverEvent(HoverEvent.showText(mm.deserialize(
-                            "<gray>Global channel\n<blue>Click to switch to Global")))
-                    .clickEvent(ClickEvent.runCommand("/chat channel global"));
-        }
-
-        return mm.deserialize("<gradient:#f1d374:#f7e08f>[L]</gradient>")
-                .hoverEvent(HoverEvent.showText(mm.deserialize(
-                        "<gray>Local channel\n<yellow>Click to switch to Local")))
-                .clickEvent(ClickEvent.runCommand("/chat channel local"));
-    }
-
-    private Component buildPlayerComponent(Player sender) {
-        PlayerInfoService infoService = plugin.getPlayerInfoService();
-        Component playerName = Component.text(sender.getName())
-                .hoverEvent(HoverEvent.showText(infoService.buildPlayerHover(sender)))
-                .clickEvent(ClickEvent.suggestCommand("/msg " + sender.getName() + " "));
-        return infoService.buildRankPrefix(sender).append(playerName);
+    public Component buildPlayerComponent(Player player) {
+        Component name = plugin.getText().render(plugin.getConfigManager()
+                .string("chat-components.player.name-format", "{display_name}"), player);
+        return plugin.getText().interactive(name, "chat-components.player", player, Map.of());
     }
 }

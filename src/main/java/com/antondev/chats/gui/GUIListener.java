@@ -1,101 +1,50 @@
 package com.antondev.chats.gui;
 
-import com.antondev.chats.ChatChannel;
 import com.antondev.chats.PlexonChats;
-import com.antondev.chats.config.ConfigManager;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 
-/**
- * Handles click events within the PlexonChats GUI.
- */
-public class GUIListener implements Listener {
-
+/** Cancel transfers for the entire view, including shift-clicks, hotbar swaps and drags. */
+public final class GUIListener implements Listener {
     private final PlexonChats plugin;
+    public GUIListener(PlexonChats plugin) { this.plugin = plugin; }
 
-    public GUIListener(PlexonChats plugin) {
-        this.plugin = plugin;
-    }
-
-    @EventHandler
-    public void onInventoryClick(InventoryClickEvent event) {
-        if (event.getInventory().getHolder() instanceof ItemPreviewHolder) {
-            event.setCancelled(true);
-            if (event.getCurrentItem() == null) return;
-            if (!(event.getWhoClicked() instanceof Player player)) return;
-            if (event.getRawSlot() < 0 || event.getRawSlot() >= event.getView().getTopInventory().getSize()) return;
-
-            if (event.getRawSlot() == 22) {
-                player.closeInventory();
-            }
-            return;
-        }
-
-        if (!(event.getInventory().getHolder() instanceof ChatGUIHolder holder)) return;
+    @EventHandler public void onClick(InventoryClickEvent event) {
+        var top = event.getView().getTopInventory();
+        var rawHolder = top.getHolder();
+        if (!(rawHolder instanceof ChatGUIHolder) && !(rawHolder instanceof ItemPreviewHolder)) return;
         event.setCancelled(true);
-
         if (!(event.getWhoClicked() instanceof Player player)) return;
-        if (event.getCurrentItem() == null) return;
-        if (event.getRawSlot() < 0 || event.getRawSlot() >= event.getView().getTopInventory().getSize()) return;
+        if (event.getRawSlot() < 0 || event.getRawSlot() >= top.getSize()) return;
+        if (event.isShiftClick() || (!event.isLeftClick() && !event.isRightClick())) return;
 
-        ConfigManager config = plugin.getConfigManager();
-        int slot = event.getRawSlot();
-        ChatGUI gui = new ChatGUI(plugin);
-
-        if (holder.getPage() == ChatGUIHolder.Page.MAIN) {
-            switch (slot) {
-                case 10 -> {
-                    if (!player.hasPermission("plexonchats.local")) {
-                        player.sendMessage(config.getNoPermission());
-                        return;
-                    }
-                    boolean changed = plugin.getChatManager().setPlayerChannel(player, ChatChannel.LOCAL);
-                    player.sendMessage(changed
-                            ? config.getChannelSwitched(ChatChannel.LOCAL)
-                            : config.getChannelAlready(ChatChannel.LOCAL));
-                    gui.openMain(player);
-                }
-                case 12 -> {
-                    if (!player.hasPermission("plexonchats.global")) {
-                        player.sendMessage(config.getNoPermission());
-                        return;
-                    }
-                    boolean changed = plugin.getChatManager().setPlayerChannel(player, ChatChannel.GLOBAL);
-                    player.sendMessage(changed
-                            ? config.getChannelSwitched(ChatChannel.GLOBAL)
-                            : config.getChannelAlready(ChatChannel.GLOBAL));
-                    gui.openMain(player);
-                }
-                case 16 -> gui.openCreator(player);
-                case 34 -> player.closeInventory();
-            }
+        if (rawHolder instanceof ItemPreviewHolder) {
+            if (event.getRawSlot() == 22) Bukkit.getScheduler().runTask(plugin, () -> {
+                if (player.getOpenInventory().getTopInventory() == top) player.closeInventory();
+            });
             return;
         }
-
-        switch (slot) {
-            case 20 -> sendLink(player, "Discord", "https://discord.com/users/348426610095161355");
-            case 22 -> sendLink(player, "Spigot Projects", "https://www.spigotmc.org/resources/authors/tonim.2341103/");
-            case 24 -> sendLink(player, "GitHub", "https://github.com/ZpkDxGames");
-            case 40 -> gui.openMain(player);
-            case 44 -> player.closeInventory();
-        }
+        ChatGUIHolder holder = (ChatGUIHolder) rawHolder;
+        if (!holder.getViewer().equals(player.getUniqueId())) return;
+        GuiButton button = holder.buttonAt(event.getRawSlot());
+        if (button == null) return;
+        // Bukkit inventory opens/closes are deferred out of the inventory transaction.
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (!player.isOnline() || player.getOpenInventory().getTopInventory() != top) return;
+            if (holder.getRevision() != plugin.getConfigManager().revision()) {
+                plugin.getChatGUI().openPage(player, holder.getPage());
+                return;
+            }
+            plugin.getChatGUI().click(player, holder, button);
+        });
     }
 
-    @EventHandler
-    public void onInventoryDrag(InventoryDragEvent event) {
-        if (event.getInventory().getHolder() instanceof ChatGUIHolder
-                || event.getInventory().getHolder() instanceof ItemPreviewHolder) {
-            event.setCancelled(true);
-        }
-    }
-
-    private void sendLink(Player player, String label, String url) {
-        ConfigManager config = plugin.getConfigManager();
-        player.sendMessage(config.getPrefixed("<gray>" + label + ": <white>" + url));
-        player.sendMessage(config.formatMessage("<click:open_url:'" + url + "'><aqua><underlined>Click here to open "
-                + label + "</underlined></aqua></click>"));
+    @EventHandler public void onDrag(InventoryDragEvent event) {
+        var holder = event.getView().getTopInventory().getHolder();
+        if (holder instanceof ChatGUIHolder || holder instanceof ItemPreviewHolder) event.setCancelled(true);
     }
 }
