@@ -1,163 +1,98 @@
 package com.antondev.chats.placeholder;
 
 import com.antondev.chats.PlexonChats;
-import com.antondev.chats.config.ConfigManager;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextReplacementConfig;
 import net.kyori.adventure.text.event.ClickEvent;
-import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
+import net.kyori.adventure.text.minimessage.tag.standard.StandardTags;
 import org.bukkit.Bukkit;
-import org.bukkit.Material;
-import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
-
-import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
-import java.util.UUID;
-import java.util.regex.Matcher;
+import java.util.Map;
 import java.util.regex.Pattern;
 
-/**
- * Handles @player mentions and [item]/@hand placeholders in chat messages.
- */
-public class PlaceholderHandler {
-
-    private static final Pattern MENTION_PATTERN = Pattern.compile("@(\\w{3,16})");
-    private static final String ITEM_PLACEHOLDER_TOKEN = "__PLEXONCHATS_ITEM_PLACEHOLDER__";
-
+/** Untrusted messages use a color-only parser; item/mention components are inserted afterwards. */
+public final class PlaceholderHandler {
+    private static final Pattern MENTION = Pattern.compile("(?<![\\w@])@(?<mentionplayer>[a-zA-Z0-9_]{3,16})(?!\\w)");
+    public static final MiniMessage COLORS = MiniMessage.builder().tags(TagResolver.resolver(
+            StandardTags.color(), StandardTags.decorations(), StandardTags.gradient(),
+            StandardTags.rainbow(), StandardTags.reset())).build();
     private final PlexonChats plugin;
+    private Pattern itemTriggers;
+    private Pattern combinedTokens;
 
-    public PlaceholderHandler(PlexonChats plugin) {
-        this.plugin = plugin;
+    public PlaceholderHandler(PlexonChats plugin) { this.plugin = plugin; reload(); }
+    public void reload() {
+        var triggers = plugin.getConfigManager().getItemTriggers();
+        itemTriggers = triggers.isEmpty() ? null : Pattern.compile(triggers.stream().map(Pattern::quote)
+                .collect(java.util.stream.Collectors.joining("|")), Pattern.CASE_INSENSITIVE);
+        combinedTokens = itemTriggers == null ? MENTION : Pattern.compile(
+                "(?<itemtoken>" + itemTriggers.pattern() + ")|" + MENTION.pattern(), Pattern.CASE_INSENSITIVE);
     }
 
-    /**
-     * Processes all placeholders in a message string, returning the final Component.
-     * Also handles side effects like playing mention sounds.
-     *
-     * @param sender  the player who sent the message
-     * @param message the raw message string
-     * @return the processed Component with all placeholders resolved
-     */
     public ProcessedMessage processMessage(Player sender, String message) {
-        ConfigManager config = plugin.getConfigManager();
-        MiniMessage mm = config.getMiniMessage();
-        List<Player> mentionedPlayers = new ArrayList<>();
-        Set<UUID> mentionIds = new HashSet<>();
+        var config = plugin.getConfigManager();
+        Component component;
+        if (!sender.hasPermission("plexonchats.formatting")) component = Component.text(message);
+        else {
+            MiniMessage parser = config.bool("formatting.allow-advanced-player-tags", false)
+                    && sender.hasPermission("plexonchats.formatting.advanced") ? config.getMiniMessage() : COLORS;
+            try { component = parser.deserialize(message); }
+            catch (IllegalArgumentException ex) { component = Component.text(message); }
+        }
 
-        // Step 1: Handle item placeholders BEFORE MiniMessage parsing
-        String processed = message;
-        if (config.isItemDisplayEnabled()) {
-            for (String trigger : config.getItemTriggers()) {
-                if (processed.toLowerCase(Locale.ROOT).contains(trigger.toLowerCase(Locale.ROOT))) {
-                    // We replace the trigger with a unique token that we'll handle after MiniMessage
-                    processed = processed.replaceAll("(?i)" + Pattern.quote(trigger), ITEM_PLACEHOLDER_TOKEN);
+        Map<java.util.UUID, Player> mentions = new LinkedHashMap<>();
+        boolean itemsEnabled = config.isItemDisplayEnabled() && sender.hasPermission("plexonchats.item") && itemTriggers != null;
+        boolean mentionsEnabled = config.isMentionsEnabled() && sender.hasPermission("plexonchats.mention");
+        if (itemsEnabled || mentionsEnabled) {
+            Pattern tokens = itemsEnabled ? (mentionsEnabled ? combinedTokens : itemTriggers) : MENTION;
+            Component[] cachedItem = new Component[1];
+            // One pass keeps item names/hover text and configured mention labels out of token parsing.
+            // Item triggers win over mentions when a username happens to be "hand".
+            component = component.replaceText(TextReplacementConfig.builder().match(tokens).replacement((match, builder) -> {
+                if (itemsEnabled && (!mentionsEnabled || match.group("itemtoken") != null)) {
+                    if (cachedItem[0] == null) cachedItem[0] = buildItemComponent(sender);
+                    return cachedItem[0];
                 }
-            }
+                Player player = Bukkit.getPlayerExact(match.group("mentionplayer"));
+                if (player == null || !player.isOnline() || !sender.canSee(player)) return builder;
+                mentions.put(player.getUniqueId(), player);
+                return plugin.getText().render(config.getMentionFormat(), sender, Map.of("player", Component.text(player.getName())));
+            }).build());
         }
-
-        // Step 2: Handle @mentions - replace with formatted version
-        if (config.isMentionsEnabled()) {
-            Matcher matcher = MENTION_PATTERN.matcher(processed);
-            StringBuilder sb = new StringBuilder();
-            while (matcher.find()) {
-                String mentionedName = matcher.group(1);
-                Player mentioned = Bukkit.getPlayerExact(mentionedName);
-                if (mentioned != null && mentioned.isOnline()) {
-                    if (mentionIds.add(mentioned.getUniqueId())) {
-                        mentionedPlayers.add(mentioned);
-                    }
-                    String formatted = config.getMentionFormat().replace("{player}", mentioned.getName());
-                    matcher.appendReplacement(sb, Matcher.quoteReplacement(formatted));
-                } else {
-                    // Keep the @mention as-is but gray it out
-                    matcher.appendReplacement(sb, Matcher.quoteReplacement("<gray>@" + mentionedName + "</gray>"));
-                }
-            }
-            matcher.appendTail(sb);
-            processed = sb.toString();
-        }
-
-        // Step 3: Parse with MiniMessage (handles all color codes, gradients, etc.)
-        Component component = mm.deserialize(processed);
-
-        // Step 4: Replace item placeholder tokens with actual item hover components
-        if (config.isItemDisplayEnabled() && processed.contains(ITEM_PLACEHOLDER_TOKEN)) {
-            Component itemComponent = buildItemComponent(sender);
-            component = component.replaceText(
-                    TextReplacementConfig.builder()
-                    .matchLiteral(ITEM_PLACEHOLDER_TOKEN)
-                            .replacement(itemComponent)
-                            .build()
-            );
-        }
-
-        return new ProcessedMessage(component, mentionedPlayers);
+        return new ProcessedMessage(component, List.copyOf(mentions.values()));
     }
 
-    /**
-     * Builds the item hover component for the player's main hand item.
-     */
     private Component buildItemComponent(Player player) {
-        ConfigManager config = plugin.getConfigManager();
-        MiniMessage mm = config.getMiniMessage();
+        var config = plugin.getConfigManager();
         ItemStack item = player.getInventory().getItemInMainHand();
-
-        if (item.getType() == Material.AIR || item.getAmount() == 0) {
-            return mm.deserialize(config.getEmptyHandMessage());
+        if (item.getType().isAir() || item.getAmount() == 0) return config.formatMessage(config.getEmptyHandMessage());
+        Component itemName = item.hasItemMeta() && item.getItemMeta().hasDisplayName()
+                ? item.getItemMeta().displayName() : Component.translatable(item.getType().translationKey());
+        Component result = plugin.getText().render(config.getItemFormat(), player, Map.of(
+                "item_name", itemName, "amount", Component.text(item.getAmount()), "material", Component.text(item.getType().name())));
+        if (config.bool("item-display.hover-item", true)) result = result.hoverEvent(item.asHoverEvent());
+        if (config.bool("item-display.click-preview", true)) {
+            String token = plugin.getItemPreviewManager().store(item, player.getName());
+            result = result.clickEvent(ClickEvent.runCommand("/chatitem " + token));
         }
-
-        String token = plugin.getItemPreviewManager().store(item, player.getName());
-        String itemName = item.hasItemMeta() && item.getItemMeta().hasDisplayName()
-            ? net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText()
-            .serialize(item.getItemMeta().displayName())
-            : formatMaterialName(item.getType().name());
-
-        String text = "<gradient:#ffd66b:#ffe58f>@hand</gradient><gray>: <yellow>" + itemName
-            + (item.getAmount() > 1 ? " <gray>x" + item.getAmount() : "");
-
-        return mm.deserialize(text)
-            .hoverEvent(HoverEvent.showText(mm.deserialize("<gray>Click to preview this item in a GUI")))
-            .clickEvent(ClickEvent.runCommand("/chatitem " + token));
+        return result;
     }
 
-    /**
-     * Notifies mentioned players with a sound.
-     */
-    public void notifyMentionedPlayers(List<Player> mentioned, Player sender) {
-        ConfigManager config = plugin.getConfigManager();
-        if (!config.isMentionsEnabled() || mentioned.isEmpty()) return;
-
-        Sound sound = config.getMentionSound();
-        float volume = config.getMentionSoundVolume();
-        float pitch = config.getMentionSoundPitch();
-
-        for (Player player : mentioned) {
-            if (player.isOnline() && !player.equals(sender)) {
-                player.playSound(player.getLocation(), sound, volume, pitch);
-                player.sendActionBar(config.getMentionActionbar(sender.getName()));
-            }
+    public void notifyMentionedPlayers(List<Player> players, Player sender) {
+        var config = plugin.getConfigManager();
+        if (!config.isMentionsEnabled()) return;
+        for (Player player : players) {
+            if (!player.isOnline() || player.equals(sender) || !plugin.getPreferences().get(player.getUniqueId()).mentions()) continue;
+            var sound = config.getMentionSound();
+            if (sound != null) player.playSound(player.getLocation(), sound, config.getMentionSoundVolume(), config.getMentionSoundPitch());
+            player.sendActionBar(config.getMentionActionbar(sender.getName()));
         }
     }
 
-    private String formatMaterialName(String materialName) {
-        String[] words = materialName.toLowerCase(Locale.ROOT).split("_");
-        StringBuilder sb = new StringBuilder();
-        for (String word : words) {
-            if (!sb.isEmpty()) sb.append(" ");
-            sb.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
-        }
-        return sb.toString();
-    }
-
-    /**
-     * Holds a processed message and the list of mentioned players.
-     */
-    public record ProcessedMessage(Component component, List<Player> mentionedPlayers) {
-    }
+    public record ProcessedMessage(Component component, List<Player> mentionedPlayers) {}
 }

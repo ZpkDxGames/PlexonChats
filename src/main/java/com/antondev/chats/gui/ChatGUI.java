@@ -2,330 +2,177 @@ package com.antondev.chats.gui;
 
 import com.antondev.chats.ChatChannel;
 import com.antondev.chats.PlexonChats;
-import com.antondev.chats.config.ConfigManager;
-import com.destroystokyo.paper.profile.PlayerProfile;
-import com.destroystokyo.paper.profile.ProfileProperty;
+import com.antondev.chats.player.PlayerPreferences;
+import com.antondev.chats.text.TextService;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
-import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.SkullMeta;
-import org.bukkit.inventory.meta.ItemMeta;
+import java.util.EnumMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
-
-/**
- * Interactive GUI for PlexonChats settings and channel selection.
- */
-public class ChatGUI {
-
-    private static final String DISCORD_TEXTURE_VALUE =
-            "eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvZjU4NzU2ZmIzOGRjZTFiNWUzZmZkZWVlYmY4MTdhMDM3MmMxM2ZmZjdhZDdjMmU5OGFjZWQxYzU5MzIwZTlhNSJ9fX0=";
-    private static final String GITHUB_TEXTURE_VALUE =
-            "eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvYjJjYTkxODVkN2E5MGYwN2VhYjM1MTBjYzFhZGJlYmQwNzViY2MyOTU4YWY5MjQ4NTAyMTUwYThjYjQyYTQ2MSJ9fX0=";
-
+public final class ChatGUI {
     private final PlexonChats plugin;
-
-    public ChatGUI(PlexonChats plugin) {
-        this.plugin = plugin;
+    private final Map<ChatGUIHolder.Page, GuiLayout> layouts = new EnumMap<>(ChatGUIHolder.Page.class);
+    public ChatGUI(PlexonChats plugin) { this.plugin = plugin; reload(); }
+    public void reload() {
+        layouts.put(ChatGUIHolder.Page.MAIN, GuiLayout.read(plugin.getConfigManager().section("gui"), "PlexonChats", plugin.getLogger()::warning));
+        layouts.put(ChatGUIHolder.Page.ADMIN, GuiLayout.read(plugin.getConfigManager().section("gui.admin"), "Administration", plugin.getLogger()::warning));
+        layouts.put(ChatGUIHolder.Page.CREATOR, GuiLayout.read(plugin.getConfigManager().section("gui.creator"), "About PlexonChats", plugin.getLogger()::warning));
     }
+    public void open(Player player) { openMain(player); }
+    public void openMain(Player player) { openPage(player, ChatGUIHolder.Page.MAIN); }
+    public void openCreator(Player player) { openPage(player, ChatGUIHolder.Page.CREATOR); }
 
-    public void open(Player player) {
-        openMain(player);
-    }
-
-    public void openMain(Player player) {
-        ConfigManager config = plugin.getConfigManager();
-        int rows = Math.max(5, config.getGuiRows());
-        int size = rows * 9;
-
-        Component title = config.getMiniMessage().deserialize(config.getGuiTitle());
-        ChatGUIHolder holder = new ChatGUIHolder(ChatGUIHolder.Page.MAIN);
-        Inventory gui = Bukkit.createInventory(holder, size, title);
-        holder.setInventory(gui);
-
-        ChatChannel currentChannel = plugin.getChatManager().getPlayerChannel(player);
-
-        ItemStack border = createItem(Material.GRAY_STAINED_GLASS_PANE, Component.empty(), null, false);
-        for (int i = 0; i < size; i++) {
-            int row = i / 9;
-            int col = i % 9;
-            if (row == 0 || row == rows - 1 || col == 0 || col == 8) {
-                gui.setItem(i, border);
+    public void openPage(Player player, ChatGUIHolder.Page page) {
+        var config = plugin.getConfigManager();
+        if (!config.bool("gui.enabled", true)) { player.sendMessage(config.message("gui-disabled")); return; }
+        if (!player.hasPermission("plexonchats.gui") || (page == ChatGUIHolder.Page.ADMIN && !player.hasPermission("plexonchats.manage"))) {
+            player.sendMessage(config.getNoPermission()); return;
+        }
+        GuiLayout layout = layouts.get(page);
+        Map<Integer, GuiButton> visible = new LinkedHashMap<>();
+        for (GuiButton button : layout.buttons().values()) {
+            if (!button.hideWithoutPermission() || allowed(player, button)) visible.put(button.slot(), button);
+        }
+        ChatGUIHolder holder = new ChatGUIHolder(page, player.getUniqueId(), config.revision(), visible);
+        Inventory inventory = Bukkit.createInventory(holder, layout.size(), plugin.getText().render(layout.title(), player));
+        holder.setInventory(inventory);
+        if (config.bool("gui.filler.enabled", true)) {
+            Material material = GuiButton.material(config.string("gui.filler.material", "GRAY_STAINED_GLASS_PANE"));
+            if (material == null) material = Material.GRAY_STAINED_GLASS_PANE;
+            ItemStack filler = item(material, plugin.getText().render(config.string("gui.filler.name", " "), player), java.util.List.of(), false);
+            boolean all = config.string("gui.filler.mode", "BORDER").equalsIgnoreCase("ALL");
+            for (int slot = 0; slot < layout.size(); slot++) {
+                if (all || slot < 9 || slot >= layout.size() - 9 || slot % 9 == 0 || slot % 9 == 8) inventory.setItem(slot, filler);
             }
         }
-
-        boolean isLocal = currentChannel == ChatChannel.LOCAL;
-        ItemStack localItem = createChannelItem(
-                isLocal ? Material.LIME_CONCRETE : Material.WHITE_WOOL,
-                "<gray><bold>Local Channel [L]",
-                isLocal,
-                List.of(
-                        "<gray>Short-range world chat",
-                        "<gray>Only players nearby can read",
-                        "",
-                        "<gray>Radius: <white>" + config.getLocalRadius() + " blocks",
-                        "<gray>Tag style: <white>[L]",
-                        "",
-                        isLocal ? "<green>Currently active" : "<yellow>Click to activate"
-                )
-        );
-        gui.setItem(10, localItem);
-
-        boolean isGlobal = currentChannel == ChatChannel.GLOBAL;
-        ItemStack globalItem = createChannelItem(
-                isGlobal ? Material.LIME_CONCRETE : Material.GOLD_BLOCK,
-                "<gold><bold>Global Channel [G]",
-                isGlobal,
-                List.of(
-                        "<gray>Server-wide cross-world chat",
-                        "<gray>Everyone online can read",
-                        "",
-                        "<gray>Shortcut: <white>" +
-                                (config.getGlobalShortcutPrefix().isEmpty() ? "None" :
-                                        config.getGlobalShortcutPrefix() + "<message>"),
-                        "<gray>Tag style: <white>[G]",
-                        "",
-                        isGlobal ? "<green>Currently active" : "<yellow>Click to activate"
-                )
-        );
-        gui.setItem(12, globalItem);
-
-        ItemStack infoItem = createChannelItem(
-                Material.BOOK,
-                "<gradient:#00e6ff:#00ffac><bold>Advanced Features",
-                false,
-                List.of(
-                        "<gray>Current channel: <white>" + currentChannel.getDisplayName(),
-                        "",
-                        "<gray>Features:",
-                        "<gray>• <white>@player mentions",
-                        "<gray>• <white>[item] and @hand display",
-                        "<gray>• <white>/announce broadcasts",
-                        "<gray>• <white>/msg and /reply tells",
-                        "<gray>• <white>Hover sections in chat",
-                        "",
-                        "<gray>Use <white>/chat <gray>for more commands."
-                )
-        );
-        gui.setItem(14, infoItem);
-
-        ItemStack creatorPage = createCreatorButtonItem();
-        gui.setItem(16, creatorPage);
-
-        gui.setItem(30, createChannelItem(
-                Material.PAPER,
-                "<white><bold>Quick Tip",
-                false,
-                List.of(
-                        "<gray>Click [G] or [L] in chat",
-                        "<gray>to switch channels instantly.",
-                        "",
-                        "<gray>Click player/message text",
-                        "<gray>to open private message flow."
-                )
-        ));
-
-        gui.setItem(32, createChannelItem(
-                Material.BELL,
-                "<gold><bold>Announcements",
-                false,
-                List.of(
-                        "<gray>Broadcast to all players:",
-                        "<white>/announce <message>",
-                        "",
-                        "<gray>Permission:",
-                        "<white>plexonchats.announce"
-                )
-        ));
-
-        gui.setItem(34, createChannelItem(
-                Material.BARRIER,
-                "<red><bold>Close Menu",
-                false,
-                List.of("<gray>Close this interface")
-        ));
-
-        player.openInventory(gui);
-    }
-
-    public void openCreator(Player player) {
-        ConfigManager config = plugin.getConfigManager();
-        int size = 45;
-
-        Component title = config.getMiniMessage().deserialize("<gradient:#00e6ff:#00ffac><bold>PlexonChats Creator</bold></gradient>");
-        ChatGUIHolder holder = new ChatGUIHolder(ChatGUIHolder.Page.CREATOR);
-        Inventory gui = Bukkit.createInventory(holder, size, title);
-        holder.setInventory(gui);
-
-        ItemStack border = createItem(Material.LIGHT_BLUE_STAINED_GLASS_PANE, Component.empty(), null, false);
-        for (int i = 0; i < size; i++) {
-            int row = i / 9;
-            int col = i % 9;
-            if (row == 0 || row == 4 || col == 0 || col == 8) {
-                gui.setItem(i, border);
-            }
+        for (GuiButton button : visible.values()) {
+            boolean active = active(player, button.action());
+            boolean available = available(button.action()) && allowed(player, button);
+            String stateKey = !allowed(player, button) ? "locked" : !available ? "disabled"
+                    : isToggle(button.action()) ? (active ? "on" : "off") : (active ? "active" : "available");
+            Map<String, Component> context = Map.of("state", config.formatMessage(config.string("gui.state." + stateKey, stateKey)));
+            String name = active && !button.activeName().isEmpty() ? button.activeName() : button.name();
+            var lore = active && !button.activeLore().isEmpty() ? button.activeLore() : button.lore();
+            inventory.setItem(button.slot(), item(!available ? button.disabledMaterial() : active ? button.activeMaterial() : button.material(),
+                    plugin.getText().render(name, player, context),
+                    lore.stream().map(line -> plugin.getText().render(line, player, context).decoration(TextDecoration.ITALIC, false)).toList(),
+                    active && available && button.glow()));
         }
-
-        gui.setItem(13, createCreatorHeadItem());
-
-        gui.setItem(20, createLinkHeadItem(
-                DISCORD_TEXTURE_VALUE,
-                "<aqua><bold>Discord Contact",
-                List.of(
-                        "<gray>Reach the creator on Discord",
-                        "<white>discord.com/users/348426610095161355",
-                        "",
-                        "<yellow>Click to receive a clickable link"
-                )
-        ));
-
-        gui.setItem(22, createChannelItem(
-                Material.BOOK,
-                "<gold><bold>Other Projects",
-                false,
-                List.of(
-                        "<gray>Spigot author resources:",
-                        "<white>spigotmc.org/resources/authors/tonim.2341103",
-                        "",
-                        "<yellow>Click to receive a clickable link"
-                )
-        ));
-
-        gui.setItem(24, createLinkHeadItem(
-                GITHUB_TEXTURE_VALUE,
-                "<white><bold>Creator GitHub",
-                List.of(
-                        "<gray>GitHub profile:",
-                        "<white>github.com/ZpkDxGames",
-                        "",
-                        "<yellow>Click to receive a clickable link"
-                )
-        ));
-
-        gui.setItem(40, createChannelItem(
-                Material.ARROW,
-                "<green><bold>Back",
-                false,
-                List.of("<gray>Return to main menu")
-        ));
-
-        gui.setItem(44, createChannelItem(
-                Material.BARRIER,
-                "<red><bold>Close",
-                false,
-                List.of("<gray>Close this menu")
-        ));
-
-        player.openInventory(gui);
+        player.openInventory(inventory);
     }
 
-    private ItemStack createItem(Material material, Component name, List<Component> lore, boolean glint) {
+    private static ItemStack item(Material material, Component name, java.util.List<Component> lore, boolean glow) {
         ItemStack item = new ItemStack(material);
-        ItemMeta meta = item.getItemMeta();
+        var meta = item.getItemMeta();
         meta.displayName(name.decoration(TextDecoration.ITALIC, false));
-        if (lore != null) {
-            meta.lore(lore);
-        }
-        if (glint) {
-            meta.setEnchantmentGlintOverride(true);
-        }
-        item.setItemMeta(meta);
-        return item;
-    }
-
-    private ItemStack createChannelItem(Material material, String name, boolean selected,
-                                        List<String> loreLines) {
-        ConfigManager config = plugin.getConfigManager();
-        ItemStack item = new ItemStack(material);
-        ItemMeta meta = item.getItemMeta();
-
-        meta.displayName(config.getMiniMessage().deserialize(name)
-                .decoration(TextDecoration.ITALIC, false));
-
-        List<Component> lore = new ArrayList<>();
-        for (String line : loreLines) {
-            lore.add(config.getMiniMessage().deserialize(line)
-                    .decoration(TextDecoration.ITALIC, false));
-        }
-                if (!lore.isEmpty()) {
-                        meta.lore(lore);
-                }
-
-        if (selected) {
-            meta.setEnchantmentGlintOverride(true);
-        }
-
-        item.setItemMeta(meta);
-        return item;
-    }
-
-    private ItemStack createCreatorHeadItem() {
-        ConfigManager config = plugin.getConfigManager();
-        ItemStack item = new ItemStack(Material.PLAYER_HEAD);
-        SkullMeta meta = (SkullMeta) item.getItemMeta();
-
-        OfflinePlayer creator = Bukkit.getOfflinePlayer("ZpkDxGames");
-        meta.setOwningPlayer(creator);
-        meta.displayName(config.formatMessage("<gradient:#00e6ff:#00ffac><bold>ZpkDxGames</bold></gradient>")
-                .decoration(TextDecoration.ITALIC, false));
-
-        List<Component> lore = List.of(
-                config.formatMessage("<gray>Plugin creator and maintainer"),
-                config.formatMessage("<gray>MC name: <white>ZpkDxGames"),
-                config.formatMessage("<gray>Use the items below for links.")
-        );
         meta.lore(lore);
+        meta.setEnchantmentGlintOverride(glow);
         item.setItemMeta(meta);
         return item;
     }
 
-        private ItemStack createCreatorButtonItem() {
-                ConfigManager config = plugin.getConfigManager();
-                ItemStack item = new ItemStack(Material.PLAYER_HEAD);
-                SkullMeta meta = (SkullMeta) item.getItemMeta();
+    public boolean allowed(Player player, GuiButton button) {
+        return (button.permission().isBlank() || player.hasPermission(button.permission()))
+                && (button.action().requiredPermission().isBlank() || player.hasPermission(button.action().requiredPermission()));
+    }
+    private boolean available(GuiAction action) {
+        return switch (action) {
+            case LOCAL -> plugin.getConfigManager().isLocalEnabled();
+            case GLOBAL -> plugin.getConfigManager().isGlobalEnabled();
+            case TOGGLE_MENTIONS -> plugin.getConfigManager().isMentionsEnabled();
+            case TOGGLE_PRIVATE_MESSAGES -> plugin.getConfigManager().bool("private-messages.enabled", true);
+            default -> true;
+        };
+    }
+    private boolean active(Player player, GuiAction action) {
+        PlayerPreferences pref = plugin.getPreferences().get(player.getUniqueId());
+        return switch (action) {
+            case LOCAL -> plugin.getChatManager().getPlayerChannel(player) == ChatChannel.LOCAL;
+            case GLOBAL -> plugin.getChatManager().getPlayerChannel(player) == ChatChannel.GLOBAL;
+            case TOGGLE_MENTIONS -> pref.mentions();
+            case TOGGLE_TIPS -> pref.tips();
+            case TOGGLE_PRIVATE_MESSAGES -> pref.privateMessages();
+            case TOGGLE_AUTO_MESSAGES -> plugin.getAutoMessages().enabled();
+            default -> false;
+        };
+    }
+    private static boolean isToggle(GuiAction action) { return action.name().startsWith("TOGGLE_"); }
 
-                OfflinePlayer creator = Bukkit.getOfflinePlayer("ZpkDxGames");
-                meta.setOwningPlayer(creator);
-                meta.displayName(config.formatMessage("<aqua><bold>Creator Page</bold></aqua>")
-                                .decoration(TextDecoration.ITALIC, false));
-                meta.lore(List.of(
-                                config.formatMessage("<gray>Open the creator profile panel"),
-                                config.formatMessage("<gray>with links and details for:"),
-                                config.formatMessage("<white>ZpkDxGames"),
-                                Component.empty(),
-                                config.formatMessage("<yellow>Click to open")
-                ));
-                item.setItemMeta(meta);
-                return item;
+    public void click(Player player, ChatGUIHolder holder, GuiButton button) {
+        var config = plugin.getConfigManager();
+        if (!player.hasPermission("plexonchats.gui") || !allowed(player, button)
+                || (holder.getPage() == ChatGUIHolder.Page.ADMIN && !player.hasPermission("plexonchats.manage"))) {
+            player.sendMessage(config.getNoPermission()); return;
         }
-
-        private ItemStack createLinkHeadItem(String textureValue, String name, List<String> loreLines) {
-                ConfigManager config = plugin.getConfigManager();
-                ItemStack item = new ItemStack(Material.PLAYER_HEAD);
-                SkullMeta meta = (SkullMeta) item.getItemMeta();
-
-                try {
-                        PlayerProfile profile = Bukkit.getServer().createProfile(UUID.randomUUID());
-                        profile.setProperty(new ProfileProperty("textures", textureValue));
-                        meta.setPlayerProfile(profile);
-                } catch (Exception ex) {
-                        // Fallback: keep default head if texture URL fails.
+        if (!available(button.action())) { player.sendMessage(config.message("gui-button-disabled")); return; }
+        var sound = config.resolveSound(config.string("gui.click-sound", "UI_BUTTON_CLICK"));
+        if (sound != null && button.action() != GuiAction.NONE) player.playSound(player.getLocation(), sound, .6f, 1f);
+        PlayerPreferences pref = plugin.getPreferences().get(player.getUniqueId());
+        switch (button.action()) {
+            case LOCAL, GLOBAL -> {
+                ChatChannel channel = button.action() == GuiAction.LOCAL ? ChatChannel.LOCAL : ChatChannel.GLOBAL;
+                if (plugin.getChatManager().selectChannel(player, channel)) {
+                    if (config.bool("gui.close-on-channel-select", false)) player.closeInventory();
+                    else openPage(player, holder.getPage());
                 }
-
-                meta.displayName(config.getMiniMessage().deserialize(name).decoration(TextDecoration.ITALIC, false));
-                List<Component> lore = new ArrayList<>();
-                for (String line : loreLines) {
-                        lore.add(config.getMiniMessage().deserialize(line).decoration(TextDecoration.ITALIC, false));
+            }
+            case TOGGLE_MENTIONS, TOGGLE_TIPS, TOGGLE_PRIVATE_MESSAGES -> {
+                PlayerPreferences updated = switch (button.action()) {
+                    case TOGGLE_MENTIONS -> pref.toggleMentions();
+                    case TOGGLE_TIPS -> pref.toggleTips();
+                    default -> pref.togglePrivateMessages();
+                };
+                plugin.getPreferences().set(player.getUniqueId(), updated);
+                openPage(player, holder.getPage());
+            }
+            case OPEN_ADMIN -> openPage(player, ChatGUIHolder.Page.ADMIN);
+            case OPEN_CREATOR -> openCreator(player);
+            case OPEN_MAIN -> openMain(player);
+            case CLOSE -> player.closeInventory();
+            case RELOAD -> {
+                boolean ok = plugin.reloadPlugin();
+                player.sendMessage(ok ? config.getConfigReloaded() : config.message("config-failed"));
+                if (ok) openPage(player, holder.getPage());
+            }
+            case TOGGLE_AUTO_MESSAGES -> {
+                boolean ok = config.saveSetting("auto-messages.enabled", !plugin.getAutoMessages().enabled()) && plugin.reloadPlugin();
+                if (!ok) player.sendMessage(config.message("config-failed"));
+                openPage(player, holder.getPage());
+            }
+            case PREVIEW_FORMAT -> previewFormats(player);
+            case PLAYER_COMMAND -> {
+                String command = plugin.getText().plain(button.value(), player).strip();
+                if (!command.isBlank() && !command.contains("\n") && !command.contains("\r")) {
+                    player.closeInventory();
+                    player.performCommand(command.startsWith("/") ? command.substring(1) : command);
                 }
-                meta.lore(lore);
-                item.setItemMeta(meta);
-                return item;
+            }
+            case MESSAGE -> player.sendMessage(plugin.getText().render(button.value(), player));
+            case LINK -> {
+                String url = plugin.getText().plain(button.value(), player);
+                if (TextService.isWebUrl(url)) player.sendMessage(config.message("link",
+                        Map.of("label", plugin.getText().plain(button.name(), player))).clickEvent(ClickEvent.openUrl(url)));
+            }
+            case NONE -> { }
         }
+    }
+
+    public void previewFormats(Player player) {
+        for (ChatChannel channel : ChatChannel.values()) player.sendMessage(plugin.getChatComponentFactory()
+                .buildPublicMessage(player, channel, plugin.getConfigManager().formatMessage("<gray>This preview is visible only to you.")));
+    }
+
+    public void closeAll() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            Inventory top = player.getOpenInventory().getTopInventory();
+            if (top != null && top.getHolder() instanceof ChatGUIHolder) player.closeInventory();
+        }
+    }
 }

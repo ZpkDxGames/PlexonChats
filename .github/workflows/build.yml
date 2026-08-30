@@ -1,0 +1,87 @@
+name: Build, test and release 3.0
+
+on:
+  push:
+    branches: ['3.0-Release']
+  pull_request:
+    branches: ['2.0-Update', '3.0-Release']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify the 2.0 source ancestry
+        run: git merge-base --is-ancestor cefcdbe0679f75a1000d5401fb6a94fc86378e03 HEAD
+      - name: Set up Java 25
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      - name: Build and run regression tests
+        run: mvn --batch-mode --no-transfer-progress clean verify
+      - name: Create release checksum
+        working-directory: target
+        run: sha256sum PlexonChats-3.0.jar > PlexonChats-3.0.jar.sha256
+      - name: Upload verified plugin
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: PlexonChats-3.0
+          path: |
+            target/PlexonChats-3.0.jar
+            target/PlexonChats-3.0.jar.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    needs: verify
+    # Only this release branch can publish; PRs and manual test runs cannot.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/3.0-Release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: plexonchats-release-3.0
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release notes
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Download the tested artifact from this run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: PlexonChats-3.0
+          path: release-artifact
+      - name: Verify the artifact checksum
+        working-directory: release-artifact
+        run: sha256sum --check PlexonChats-3.0.jar.sha256
+      - name: Publish 3.0 without overwriting an existing tag or release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          existing_tag="$(git ls-remote --tags origin refs/tags/v3.0)"
+          if [ -n "$existing_tag" ]; then
+            echo "::error::v3.0 already exists. No tag or release will be overwritten."
+            exit 1
+          fi
+          gh release create v3.0 \
+            release-artifact/PlexonChats-3.0.jar \
+            release-artifact/PlexonChats-3.0.jar.sha256 \
+            --repo "$GH_REPO" \
+            --target "$GITHUB_SHA" \
+            --title "PlexonChats 3.0 Release" \
+            --notes-file docs/RELEASE-3.0.md \
+            --latest
