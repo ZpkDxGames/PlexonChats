@@ -1,68 +1,436 @@
-# =============================================
-#         PlexonChats Configuration
-# =============================================
-# MiniMessage formatting is fully supported!
-# Reference: https://docs.advntr.dev/minimessage/format.html
-
-# Default channel players join when connecting
+# ============================================================
+# PlexonChats 3.0 — Paper 1.21.11+ / Java 25+
+# All admin-owned text supports MiniMessage. UTF-8, spaces only.
+# /chat reload applies edits; invalid YAML keeps the live config.
+# Existing 2.0 settings are retained, with a backup before migration.
+# ============================================================
+config-version: 3
+server-name: "Plexon"
 default-channel: LOCAL
 
-# ---- Channel Settings ----
 channels:
   local:
     enabled: true
-    # Radius in blocks (players beyond this won't see local messages)
     radius: 100
-    # Format supports: {player}, {message}, {world}
-    format: "<gradient:#f1d374:#f7e08f>[L]</gradient> <gray>{player} <dark_gray>» <gray>{message}"
-    # Prefix required to talk in this channel without switching (leave empty to disable)
+    # {player} is the interactive nickname, NOT the rank prefix.
+    # Reorder/remove components freely. Always keep {message}.
+    format: "{channel_badge} {rank_prefix}{player}{separator}<gray>{message}"
+    badge: "<gradient:#f1d374:#f7e08f>[L]</gradient>"
     shortcut-prefix: ""
-    # Message shown when no one is nearby
-    no-recipients-message: "<gray><italic>No one is nearby to hear you..."
-
+    no-recipients-message: "<gray><italic>No one is nearby to hear you...</italic>"
+    # Empty = everyone nearby can receive. This is separate from sending permission.
+    receive-permission: ""
   global:
     enabled: true
-    format: "<gradient:#6ea8ff:#88beff>[G]</gradient> <white>{player} <dark_gray>» <white>{message}"
-    # Prefix to quickly send a global message (e.g., typing "!hello" sends "hello" globally)
+    format: "{channel_badge} {rank_prefix}{player}{separator}<white>{message}"
+    badge: "<gradient:#6ea8ff:#88beff>[G]</gradient>"
     shortcut-prefix: "!"
+    receive-permission: ""
 
-# ---- Mention Settings ----
+# Built-ins: {player_name}, {display_name}, {world}, {uuid}, {rank},
+# {rank_prefix}, {balance}, {playtime}, {ping}, {online}, {max_players},
+# {server_name}, {channel}, {channel_id}, {radius}, {version}.
+# %PlaceholderAPI_values% are resolved for the subject player.
+# Built-in/PAPI values are inserted safely as components, never as new tags.
+# Put dynamic click commands in click.value, not inside a MiniMessage tag.
+chat-components:
+  player:
+    name-format: "<white>{display_name}</white>"
+    hover:
+      enabled: true
+      lines:
+        - "<gradient:#6ea8ff:#88d8ff><bold>PLAYER PROFILE</bold></gradient>"
+        - "<dark_gray>━━━━━━━━━━━━━━━━━━━━━━"
+        - "<gray>Name <dark_gray>› <white>{player_name}"
+        - "<gray>Rank <dark_gray>› <white>{rank}"
+        - ""
+        - "<gray>World <dark_gray>› <white>{world}"
+        - "<gray>Playtime <dark_gray>› <white>{playtime}"
+        - "<gray>Balance <dark_gray>› <gold>{balance}"
+        - "<gray>Connection <dark_gray>› <green>{ping} ms"
+        - ""
+        - "<aqua>Click to send a private message"
+    click:
+      # NONE, SUGGEST_COMMAND, RUN_COMMAND, OPEN_URL, COPY_TO_CLIPBOARD.
+      action: SUGGEST_COMMAND
+      value: "/msg {player_name} "
+  channel:
+    hover:
+      enabled: true
+      lines:
+        - "<white><bold>{channel} chat</bold></white>"
+        - "<gray>Click to switch your outgoing channel."
+    click:
+      action: RUN_COMMAND
+      value: "/chat channel {channel_id}"
+  separator:
+    format: " <dark_gray>» </dark_gray>"
+    hover:
+      enabled: false
+      lines: ["<gray>Message {player_name}"]
+    click:
+      action: NONE
+      value: "/msg {player_name} "
+
+formatting:
+  # Players need plexonchats.formatting for colors/gradients.
+  # Advanced click/hover tags require this option AND .formatting.advanced.
+  allow-advanced-player-tags: false
+  # PAPI/Vault strings use legacy colors (&, §, &#RRGGBB, &x...).
+  # They cannot introduce MiniMessage commands or new placeholders.
+
+chat:
+  max-message-length: 512
+  cooldown-milliseconds: 1000
+  duplicate-window-seconds: 5
+  log-to-console: true
+
+private-messages:
+  enabled: true
+  sent-format: "<gray>[To] {target}<dark_gray> » <white>{message}"
+  received-format: "<gray>[From] {sender}<dark_gray> » <white>{message}"
+  # PMs are NEVER forwarded to Discord. Only the actual recipient is notified.
+
+# The 2.0 README listed connection-message customization; 3.0 supplies
+# the implementation. DEFAULT preserves the native/previous plugin message.
+connection-messages:
+  # Do not reveal a player whose message was already suppressed by another plugin.
+  respect-hidden: true
+  # Only applies in CUSTOM mode. This permission is NOT granted to ops by default.
+  silent-permission: "plexonchats.connection.silent"
+  join:
+    # DEFAULT, CUSTOM or HIDDEN. CUSTOM uses the formats below.
+    mode: DEFAULT
+    format: "<dark_gray>[<green>+</green>]</dark_gray> {player} <gray>joined <dark_gray>• <gray>{online}/{max_players}"
+    # Empty = use the regular join format. Supports the same placeholders.
+    first-join-format: ""
+  quit:
+    mode: DEFAULT
+    format: "<dark_gray>[<red>−</red>]</dark_gray> {player} <gray>left <dark_gray>• <gray>{online}/{max_players}"
+  # {player} is interactive. {online} reflects the count after joining/leaving.
+  # Other built-ins and PlaceholderAPI values use the connecting player.
+
 mentions:
   enabled: true
-  # Format for @playername in chat
   format: "<gradient:#00e6ff:#00ffac>@{player}</gradient>"
-  actionbar-message: "<gray>[<gradient:#00e6ff:#00ffac>{player}</gradient><gray>] mentioned you in chat!"
-  # Sound played to the mentioned player
+  actionbar-message: "<aqua>{player}</aqua><gray> mentioned you in chat!"
+  # Supports Bukkit names, namespaced keys, or NONE.
   sound: BLOCK_NOTE_BLOCK_PLING
   sound-volume: 1.0
   sound-pitch: 1.5
 
-# ---- Item Display Settings ----
 item-display:
   enabled: true
-  # Placeholders that trigger item display: [item], @hand
-  triggers:
-    - "[item]"
-    - "@hand"
-  # Format for the item display (hover shows full item tooltip)
-  format: "<gradient:#ffd66b:#ffe58f>@hand</gradient>: <yellow>{item_name}"
-  # Message when player holds no item
+  triggers: ["[item]", "@hand"]
+  # {item_name} preserves the custom item's colors; {amount}, {material} supported.
+  format: "<gradient:#ffd66b:#ffe58f>✦</gradient> {item_name} <gray>×{amount}"
   empty-hand-message: "<gray><italic>[Empty Hand]</italic></gray>"
+  hover-item: true
+  click-preview: true
+  preview:
+    expire-seconds: 1800
+    max-entries: 1000
+    title: "<gradient:#ffd66b:#ffe58f>Hand Item Preview</gradient>"
 
-# ---- GUI Settings ----
+preferences:
+  # Channel, mention, tip and PM preferences survive reconnects/restarts.
+  # Disk writes are atomic and run off-thread; saves also flush on shutdown.
+  save-interval-seconds: 60
+
+# GUI slots are zero-based. rows supports 1–6 (9–54 slots).
+# Invalid materials/actions, duplicate slots and out-of-range items are skipped
+# with a console warning. Slots below are valid for three rows.
+# Remove any button, or add custom ones. {} means no buttons.
+# Actions: LOCAL, GLOBAL, TOGGLE_MENTIONS, TOGGLE_TIPS, TOGGLE_PRIVATE_MESSAGES,
+# OPEN_ADMIN, OPEN_CREATOR, OPEN_MAIN, RELOAD, TOGGLE_AUTO_MESSAGES,
+# PREVIEW_FORMAT, PLAYER_COMMAND, MESSAGE, LINK, CLOSE, NONE.
+# PLAYER_COMMAND runs with the clicking player's permissions, never as console.
 gui:
-  title: "<gradient:#00e6ff:#00ffac><bold>PlexonChats</bold></gradient>"
+  enabled: true
+  title: "<gradient:#88beff:#b9d8ff><bold>PlexonChats</bold></gradient>"
   rows: 3
+  close-on-channel-select: false
+  click-sound: UI_BUTTON_CLICK
+  filler:
+    enabled: true
+    material: GRAY_STAINED_GLASS_PANE
+    # BORDER or ALL
+    mode: BORDER
+    name: " "
+  state:
+    active: "<green>● Active"
+    available: "<yellow>Click to activate"
+    disabled: "<red>Unavailable"
+    locked: "<red>No permission"
+    on: "<green>● Enabled"
+    off: "<gray>○ Disabled"
+  items:
+    local:
+      slot: 10
+      action: LOCAL
+      material: WHITE_WOOL
+      active-material: LIME_CONCRETE
+      disabled-material: GRAY_DYE
+      glow-when-active: true
+      name: "<gradient:#f1d374:#f7e08f><bold>Local chat</bold></gradient>"
+      lore:
+        - "<gray>Talk to nearby players in your world."
+        - "<gray>Range <dark_gray>› <white>{radius} blocks"
+        - ""
+        - "{state}"
+    global:
+      slot: 12
+      action: GLOBAL
+      material: LIGHT_BLUE_WOOL
+      active-material: LIME_CONCRETE
+      disabled-material: GRAY_DYE
+      glow-when-active: true
+      name: "<gradient:#6ea8ff:#88beff><bold>Global chat</bold></gradient>"
+      lore:
+        - "<gray>Talk across the server."
+        - "<gray>Shortcut <dark_gray>› <white>{global_shortcut}"
+        - ""
+        - "{state}"
+    mentions:
+      slot: 14
+      action: TOGGLE_MENTIONS
+      material: NOTE_BLOCK
+      name: "<aqua><bold>Mention alerts</bold></aqua>"
+      lore: ["<gray>Toggle sound and action-bar alerts.", "", "{state}"]
+    tips:
+      slot: 16
+      action: TOGGLE_TIPS
+      material: PAPER
+      name: "<gold><bold>Server tips</bold></gold>"
+      lore: ["<gray>Toggle optional scheduled tips.", "", "{state}"]
+    private-messages:
+      slot: 20
+      action: TOGGLE_PRIVATE_MESSAGES
+      material: WRITABLE_BOOK
+      name: "<white><bold>Private messages</bold></white>"
+      lore: ["<gray>Allow players to send you messages.", "<gray>Authorized staff may bypass this.", "", "{state}"]
+    admin:
+      slot: 22
+      action: OPEN_ADMIN
+      permission: plexonchats.manage
+      hide-without-permission: true
+      material: COMPARATOR
+      name: "<aqua><bold>Administration</bold></aqua>"
+      lore: ["<gray>Manage, preview and reload settings."]
+    creator:
+      slot: 24
+      action: OPEN_CREATOR
+      material: BOOK
+      name: "<white><bold>About PlexonChats</bold></white>"
+      lore: ["<gray>Version {version}", "<gray>Created by Tonim / ZpkDxGames"]
+    close:
+      slot: 26
+      action: CLOSE
+      material: BARRIER
+      name: "<red>Close"
+      lore: []
 
-# ---- Messages ----
+  admin:
+    title: "<gradient:#88beff:#b9d8ff><bold>Chat administration</bold></gradient>"
+    rows: 3
+    items:
+      reload:
+        slot: 10
+        action: RELOAD
+        permission: plexonchats.reload
+        material: REPEATER
+        name: "<green><bold>Reload configuration</bold></green>"
+        lore: ["<gray>Apply config.yml changes safely.", "<gray>Invalid YAML keeps the live settings."]
+      scheduler:
+        slot: 12
+        action: TOGGLE_AUTO_MESSAGES
+        permission: plexonchats.automessages
+        material: CLOCK
+        name: "<gold><bold>Scheduled messages</bold></gold>"
+        lore: ["<gray>Groups <dark_gray>› <white>{auto_groups}", "<gray>Status <dark_gray>› <white>{auto_status}", "<gray>Toggle is saved to config.yml.", "", "{state}"]
+      preview:
+        slot: 14
+        action: PREVIEW_FORMAT
+        material: NAME_TAG
+        name: "<aqua><bold>Preview chat formats</bold></aqua>"
+        lore: ["<gray>Show local/global previews only to you.", "<gray>Hover your nickname to inspect it."]
+      integration:
+        slot: 16
+        action: NONE
+        material: IRON_CHAIN
+        name: "<blue><bold>DiscordSRV</bold></blue>"
+        lore: ["<gray>Status <dark_gray>› <white>{discord_status}", "<gray>Configure integrations.discordsrv.", "<gray>Local chat and PMs stay private."]
+      back:
+        slot: 22
+        action: OPEN_MAIN
+        material: ARROW
+        name: "<white>Back"
+        lore: []
+      close:
+        slot: 26
+        action: CLOSE
+        material: BARRIER
+        name: "<red>Close"
+        lore: []
+
+  creator:
+    title: "<white><bold>About PlexonChats</bold></white>"
+    rows: 3
+    items:
+      info:
+        slot: 4
+        action: NONE
+        material: BOOK
+        name: "<aqua><bold>Tonim / ZpkDxGames</bold></aqua>"
+        lore: ["<gray>PlexonChats {version}", "<gray>Plugin creator and maintainer"]
+      discord:
+        slot: 10
+        action: LINK
+        value: "https://discord.com/users/348426610095161355"
+        material: LIGHT_BLUE_CONCRETE
+        name: "<aqua>Creator Discord"
+        lore: ["<gray>Receive a clickable contact link."]
+      projects:
+        slot: 13
+        action: LINK
+        value: "https://www.spigotmc.org/resources/authors/tonim.2341103/"
+        material: BOOKSHELF
+        name: "<gold>Other projects"
+        lore: ["<gray>Visit the creator's Spigot resources."]
+      github:
+        slot: 16
+        action: LINK
+        value: "https://github.com/ZpkDxGames/PlexonChats"
+        material: END_CRYSTAL
+        name: "<white>GitHub"
+        lore: ["<gray>Source code and documentation."]
+      back:
+        slot: 22
+        action: OPEN_MAIN
+        material: ARROW
+        name: "<white>Back"
+        lore: []
+      close:
+        slot: 26
+        action: CLOSE
+        material: BARRIER
+        name: "<red>Close"
+        lore: []
+
+# Each group has its own interval/rotation. A single lightweight timer services
+# all groups. Schedules restart from their initial delay after a reload/restart.
+auto-messages:
+  enabled: true
+  groups:
+    tips:
+      enabled: true
+      interval-seconds: 300
+      initial-delay-seconds: 60
+      # SEQUENTIAL or SHUFFLE (a shuffled bag, no immediate cycle repeats).
+      order: SHUFFLE
+      min-online: 1
+      # If true, players can opt out using the tips button.
+      respect-tip-preference: true
+      permission: ""
+      worlds: []
+      excluded-worlds: []
+      sound: NONE
+      sound-volume: 0.6
+      sound-pitch: 1.2
+      # Must ALSO enable integrations.discordsrv.forward-announcements.
+      # Forwarding is blocked for groups with world/permission/opt-out filters.
+      forward-to-discord: false
+      messages:
+        - id: chat-menu
+          delivery: CHAT
+          lines:
+            - ""
+            - "<gradient:#88beff:#b9d8ff><bold>✦ QUICK TIP</bold></gradient>"
+            - "<gray>Hi {player_name}! Open <click:run_command:'/chat gui'><aqua>/chat gui</aqua></click> to choose your channel and alerts."
+            - ""
+        - id: global-chat
+          delivery: CHAT
+          lines:
+            - "<gold>✦</gold> <gray>Start a message with <white>!</white> to talk in global chat."
+        - id: item-showcase
+          delivery: ACTION_BAR
+          lines:
+            - "<gold>✦</gold> <gray>Share your held item by typing <yellow>[item]</yellow> in chat."
+    announcements:
+      enabled: true
+      interval-seconds: 900
+      initial-delay-seconds: 180
+      order: SEQUENTIAL
+      min-online: 1
+      respect-tip-preference: false
+      permission: ""
+      worlds: []
+      excluded-worlds: []
+      sound: NONE
+      forward-to-discord: false
+      messages:
+        - id: welcome
+          delivery: CHAT
+          lines:
+            - "<gradient:#6ea8ff:#88d8ff><bold>PLEXON</bold></gradient> <dark_gray>» <gray>Be kind, enjoy the server, and help new players feel welcome."
+        # TITLE uses line 1 as the title and line 2 as the subtitle.
+        # - id: event
+        #   delivery: TITLE
+        #   fade-in-seconds: 0.5
+        #   stay-seconds: 3.0
+        #   fade-out-seconds: 0.5
+        #   lines: ["<aqua>Server event", "<gray>Read chat for details!"]
+
+integrations:
+  discordsrv:
+    # Install/configure DiscordSRV separately. No bot tokens belong here.
+    # Tested API: DiscordSRV 1.30.5 (1.x). Optional; absent = chat still works.
+    enabled: false
+    # A GAME channel key in DiscordSRV's Channels map, NOT a Discord ID.
+    # DiscordSRV example: Channels: {"global": "YOUR_DISCORD_CHANNEL_ID"}
+    game-channel: "global"
+    minecraft-to-discord: true
+    discord-to-minecraft: true
+    # {message} is DiscordSRV's already formatted, filtered Minecraft component.
+    # Other wrapper values: {discord_name}, {discord_user}, {discord_channel}.
+    incoming-format: "{message}"
+    # Only players with this permission see Discord messages; empty = everyone.
+    receive-permission: ""
+    # Prevent mass mentions when player/global announcements are forwarded.
+    suppress-mentions: true
+    forward-announcements: false
+
 messages:
-  prefix: "<b><gradient:#00e6ff:#00ffac>Plexon Chats</gradient></b> <dark_gray>» "
-  channel-switched: "<green>You switched to the <white>{channel}<green> channel."
-  channel-already: "<yellow>You are already in the <white>{channel}<yellow> channel."
+  prefix: "<bold><gradient:#88beff:#b9d8ff>PlexonChats</gradient></bold> <dark_gray>» "
+  channel-switched: "<green>You switched to the <white>{channel}</white> channel."
+  channel-already: "<yellow>You are already in the <white>{channel}</white> channel."
+  channel-disabled: "<red>{channel} chat is currently disabled."
   no-permission: "<red>You don't have permission to do that."
-  config-reloaded: "<green>Configuration reloaded successfully!"
+  config-reloaded: "<green>Configuration reloaded successfully."
+  config-failed: "<red>Configuration could not be applied. Check the console; your live settings were kept."
   player-only: "<red>This command can only be used by players."
   unknown-channel: "<red>Unknown channel: <white>{channel}"
   announcement-format: "{message}"
   player-not-found: "<red>Player not found: <white>{player}"
   no-reply-target: "<red>You have no one to reply to."
+  reply-target-offline: "<red>Your last conversation target is offline."
+  private-disabled: "<red>Private messaging is disabled."
+  private-blocked: "<yellow>This player is not accepting private messages."
+  private-self: "<red>You cannot message yourself."
+  empty-message: "<yellow>Please enter a message."
+  message-too-long: "<red>Your message exceeds {limit} characters."
+  message-newline: "<red>Messages must fit on one line."
+  cooldown: "<yellow>Please wait {seconds}s before sending another message."
+  duplicate-message: "<yellow>Please don't repeat the same message so quickly."
+  gui-disabled: "<yellow>The chat GUI is currently disabled."
+  gui-button-disabled: "<yellow>This feature is currently disabled by the server."
+  preference-updated: "<green>Preference saved: <white>{setting}</white> = {state}"
+  link: "<aqua><underlined>Click to open {label}</underlined></aqua>"
+  auto-disabled: "<yellow>Scheduled messages are disabled in config.yml."
+  auto-paused: "<yellow>Scheduled messages paused until resume/reload."
+  auto-resumed: "<green>Scheduled messages resumed."
+  auto-not-found: "<red>Unknown message group: {group}"
+  auto-sent: "<green>Sent {group} to {count} eligible player(s)."
+  auto-none: "<yellow>No eligible recipients or enabled messages in {group}."
+  auto-status: "<gray>Scheduler <dark_gray>› <white>{state}</white> <gray>Groups <dark_gray>› <white>{groups}"
+  status: "<gray>PlexonChats {version} <dark_gray>• <gray>DiscordSRV: <white>{discord}</white> <dark_gray>• <gray>Auto-messages: <white>{scheduler}"

@@ -72,7 +72,7 @@ public class ChatItemPreviewCommand implements CommandExecutor, TabCompleter {
         ConfigManager config = plugin.getConfigManager();
         ItemPreviewHolder holder = new ItemPreviewHolder();
         Inventory inv = Bukkit.createInventory(holder, 27,
-                config.formatMessage("<gradient:#ffd66b:#ffe58f>Hand Item Preview</gradient>"));
+                config.formatMessage(config.string("item-display.preview.title", "Hand Item Preview")));
         holder.setInventory(inv);
 
         ItemStack item = stored.item().clone();
@@ -89,8 +89,7 @@ public class ChatItemPreviewCommand implements CommandExecutor, TabCompleter {
 
         ItemMeta itemMeta = item.getItemMeta();
         if (itemMeta != null && itemMeta.hasDisplayName()) {
-            lore.add(config.formatMessage("<gray>Name: <white>"
-                    + PlainTextComponentSerializer.plainText().serialize(itemMeta.displayName())));
+            lore.add(config.formatMessage("<gray>Name: ").append(itemMeta.displayName()));
         }
 
         if (itemMeta != null && itemMeta.hasLore() && itemMeta.lore() != null) {

@@ -55,7 +55,7 @@ public class ReplyCommand implements CommandExecutor, TabCompleter {
 
         Player target = Bukkit.getPlayer(targetId);
         if (target == null || !target.isOnline()) {
-            senderPlayer.sendMessage(config.getPrefixed("<red>Your last conversation target is offline."));
+            senderPlayer.sendMessage(config.message("reply-target-offline"));
             return true;
         }
 
