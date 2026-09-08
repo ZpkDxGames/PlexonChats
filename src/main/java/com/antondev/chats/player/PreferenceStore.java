@@ -24,6 +24,7 @@ public final class PreferenceStore implements AutoCloseable {
     private final Path path;
     private final Map<UUID, PlayerPreferences> values = new HashMap<>();
     private final AtomicBoolean dirty = new AtomicBoolean();
+    private final AtomicBoolean writing = new AtomicBoolean();
     private final ExecutorService writer = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "PlexonChats-preferences");
         thread.setDaemon(true);
@@ -68,6 +69,7 @@ public final class PreferenceStore implements AutoCloseable {
         if (!writable || !dirty.getAndSet(false)) return;
         Map<UUID, PlayerPreferences> snapshot = Map.copyOf(values);
         writer.execute(() -> {
+            writing.set(true);
             try {
                 YamlConfiguration yaml = new YamlConfiguration();
                 snapshot.forEach((id, preference) -> {
@@ -81,9 +83,16 @@ public final class PreferenceStore implements AutoCloseable {
             } catch (IOException ex) {
                 dirty.set(true);
                 plugin.getLogger().warning("Player preferences could not be saved; will retry: " + ex.getMessage());
+            } finally {
+                writing.set(false);
             }
         });
     }
+
+    public boolean writable() { return writable; }
+    public boolean dirty() { return dirty.get(); }
+    public String writerState() { return writing.get() ? "RUNNING" : writer.isShutdown() ? "STOPPED" : "IDLE"; }
+    public boolean saveTaskActive() { return task != null && !task.isCancelled(); }
 
     @Override public void close() {
         if (task != null) task.cancel();
