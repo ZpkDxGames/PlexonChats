@@ -25,16 +25,22 @@ public final class MessageCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
+    /** Existing command-facing entry point retained for source compatibility. */
     public void sendPrivateMessage(Player sender, Player target, String raw) {
+        trySendPrivateMessage(sender, target, raw);
+    }
+
+    /** Controlled PM route used by the public service API. Main thread only. */
+    public boolean trySendPrivateMessage(Player sender, Player target, String raw) {
         var config = plugin.getConfigManager();
-        if (!sender.hasPermission("plexonchats.tell")) { sender.sendMessage(config.getNoPermission()); return; }
-        if (!config.bool("private-messages.enabled", true)) { sender.sendMessage(config.message("private-disabled")); return; }
-        if (sender.equals(target)) { sender.sendMessage(config.message("private-self")); return; }
-        if (!target.isOnline() || !sender.canSee(target)) { sender.sendMessage(config.message("reply-target-offline")); return; }
+        if (!sender.hasPermission("plexonchats.tell")) { sender.sendMessage(config.getNoPermission()); return false; }
+        if (!config.bool("private-messages.enabled", true)) { sender.sendMessage(config.message("private-disabled")); return false; }
+        if (sender.equals(target)) { sender.sendMessage(config.message("private-self")); return false; }
+        if (!target.isOnline() || !sender.canSee(target)) { sender.sendMessage(config.message("reply-target-offline")); return false; }
         if (!plugin.getPreferences().get(target.getUniqueId()).privateMessages() && !sender.hasPermission("plexonchats.bypass.private")) {
-            sender.sendMessage(config.message("private-blocked")); return;
+            sender.sendMessage(config.message("private-blocked")); return false;
         }
-        if (!plugin.getChatManager().validateMessage(sender, raw)) return;
+        if (!plugin.getChatManager().validateMessage(sender, raw)) return false;
         var processed = plugin.getPlaceholderHandler().processMessage(sender, raw);
         Map<String, Component> values = Map.of(
                 "sender", plugin.getChatComponentFactory().buildPlayerComponent(sender),
@@ -45,6 +51,7 @@ public final class MessageCommand implements CommandExecutor, TabCompleter {
         plugin.getPrivateMessageManager().linkConversation(sender, target);
         // An uninvolved third player must never receive a notification about a private conversation.
         plugin.getPlaceholderHandler().notifyMentionedPlayers(processed.mentionedPlayers().stream().filter(target::equals).toList(), sender);
+        return true;
     }
 
     @Override public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
