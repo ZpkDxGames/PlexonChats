@@ -59,6 +59,7 @@ public final class AutoMessageManager implements AutoCloseable {
     public boolean paused() { return paused; }
     public String status() { return !enabled() ? "DISABLED" : paused ? "PAUSED" : "RUNNING"; }
     public Set<String> groupNames() { return java.util.Collections.unmodifiableSet(groups.keySet()); }
+    public boolean taskActive() { return task != null && !task.isCancelled(); }
     public void pause() { paused = true; }
     public void resume() {
         paused = false;
