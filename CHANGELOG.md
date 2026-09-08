@@ -1,5 +1,53 @@
 # Changelog
 
+## 3.1.0
+
+Based on the verified production `3.0-Release` commit `4bff64e1691e79f0199baace428ec4349be9400b`. The stale historical `main` branch was not used as the migration baseline.
+
+### Added
+
+- PlexonCore 1.0.0 lifecycle bridge with module ID `chats`, supported Core API range `>=1.0 <2.0`, and STARTING/READY/DEGRADED/FAILED publication.
+- Safe standalone Core bridge/factory that avoids Core API linkage when PlexonCore is absent, disabled, unavailable, or incompatible.
+- Bukkit `PlexonChatsAPI` service with immutable player-preference snapshots and controlled channel/public-chat/private-message operations.
+- `/chat diagnostics` for plugin/platform/Core/API/preferences/scheduler/item-preview/GUI/PAPI/Vault/DiscordSRV state without exposing chat content.
+- Core lifecycle regression tests covering compatibility, fallback, duplicate registration ownership, health transitions, and clean unregister.
+- Tag-driven release workflow design with pinned PlexonCore provisioning, distribution verification, and `SHA256SUMS.txt`.
+- API, PlexonCore, migration, and 3.1.0 release documentation.
+
+### Changed
+
+- Version is now 3.1.0.
+- Build/runtime target is Paper 26.2 / Java 25.
+- `plugin.yml` API metadata is aligned to Paper 26.2.
+- PlexonCore 1.0.0 is a `provided` Maven dependency and a runtime soft dependency.
+- GitHub CI/release handling is normalized for maintained `main`/release branches and tag-driven production publication.
+
+### Preserved
+
+- `com.antondev.chats` package namespace.
+- Existing commands, aliases, and permission nodes.
+- Configuration schema 3 and existing live `config.yml` compatibility.
+- `players.yml` format and ordered asynchronous persistence architecture.
+- LOCAL/GLOBAL semantics, configured local radius, shortcut prefixes, validation/cooldown/duplicate protection.
+- One authoritative public-chat route and one `PlexonChatEvent` per logical public message.
+- Existing synchronous, cancellable `PlexonChatEvent` timing/accessors/recipient mutability and PM exclusion.
+- Paper lower-priority moderation cancellation, message edits, and viewer restrictions.
+- Private-message and `/reply` behavior.
+- One auto-message scheduler with current group content/rotation/audience behavior.
+- GUI behavior and inventory protections.
+- Exact item-preview snapshots and single cleanup task.
+- MiniMessage/PlaceholderAPI/display-name/click-action security policies.
+- Vault/player-info behavior.
+- DiscordSRV as the only Minecraft→Discord chat path; global at most once, local/PM never.
+- Invalid reload behavior: rejected candidate configuration does not replace the working live configuration.
+
+### Compatibility
+
+- Target: Paper 26.2, Java 25.
+- PlexonCore 1.0.0 is optional at runtime; compatible Core produces CORE mode, otherwise PlexonChats remains standalone.
+- DiscordSRV remains optional and is not bundled.
+- No configuration or player-data reset is required from 3.0.
+
 ## 3.0
 
 Based on `2.0-Update` (`cefcdbe0679f75a1000d5401fb6a94fc86378e03`), not `main`.
