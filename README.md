@@ -1,35 +1,45 @@
 # PlexonChats
 
-Configurable local/global chat, interactive nicknames and item previews, private messages, player menus, scheduled tips, and an optional DiscordSRV bridge for Paper.
+Configurable local/global chat, interactive nicknames and item previews, private messages, player menus, scheduled messages, and an optional DiscordSRV bridge for Paper.
 
-## Version 3.0
+## Version 3.1.0
 
-Built from `2.0-Update` at `cefcdbe0679f75a1000d5401fb6a94fc86378e03`, on the `3.0-Release` branch. This replaces the withdrawn 1.1.0 proposal based on `main`.
+PlexonChats 3.1.0 is built from the verified `3.0-Release` baseline (`4bff64e1691e79f0199baace428ec4349be9400b`) and migrates the existing 3.0 chat system to Paper 26.2 and PlexonCore without redesigning player-facing chat.
 
-- **Chat you control:** channel layouts, nickname text, hover lines, click actions, badges, separators, and private-message layouts live in `config.yml`.
+- **Core-native, still standalone:** registers module `chats` with PlexonCore 1.0.0 when available; otherwise the full chat engine continues in standalone mode.
+- **Stable integration API:** `PlexonChatsAPI` is registered through Bukkit `ServicesManager`; the existing synchronous cancellable `PlexonChatEvent` remains the public-chat moderation boundary.
+- **Chat you control:** channel layouts, nickname text, hover lines, click actions, badges, separators, and private-message layouts remain in `config.yml`.
 - **Configurable menus:** 1–6 rows, custom slots/materials/lore/actions, permission-aware buttons, an administration page, and private format previews.
-- **Saved player settings:** outgoing channel, mention alerts, optional tips, and private-message reception survive reconnects and restarts.
-- **Scheduled messages:** independent interval-based groups, sequential or shuffled rotation, chat/action-bar/title delivery, audience filters, and pause/resume/preview controls.
-- **Optional DiscordSRV:** global chat ↔ one mapped Discord game channel, duplicate suppression, integration status, and explicit opt-in announcement forwarding.
-- **Join/leave customization:** native, custom, or hidden messages; first-join text, accurate online counts, and respect for previously hidden messages.
-- **Safer operation:** backed-up config migration, rejected invalid reloads, bounded item previews, chat rate limits, safe placeholder insertion, and recipient-only mention alerts.
+- **Saved player settings:** outgoing channel, mention alerts, optional tips, and private-message reception remain in `players.yml` and survive reconnects/restarts.
+- **Scheduled messages:** one scheduler handles independent groups with sequential/shuffled rotation, chat/action-bar/title delivery, audience filters, and pause/resume/preview controls.
+- **Optional DiscordSRV:** global chat ↔ one mapped Discord game channel, duplicate suppression, integration status, and explicit opt-in announcement forwarding. Local chat and PMs never bridge.
+- **Safer operation:** rejected invalid reloads, bounded item previews, chat rate limits, safe placeholder insertion, recipient-only mention alerts, and diagnostics without message-content exposure.
 
 ## Requirements
 
-- Paper **1.21.11** and **Java 25**. This is the build/test target; newer server releases need their own compatibility check. Folia is not supported.
+- Paper **26.2** and **Java 25**. Folia is not supported.
+- Optional: **PlexonCore 1.0.0**. Core API `>=1.0 <2.0` is supported; the plugin remains operational without Core.
 - Optional: **PlaceholderAPI** with the expansions you use; **Vault** with a chat/permissions or economy provider.
-- Optional: **DiscordSRV 1.30.5**. The adapter targets its 1.x API and is disabled until configured. No DiscordSRV classes are bundled in PlexonChats.
+- Optional: **DiscordSRV 1.30.5**. The adapter remains optional and no DiscordSRV classes are bundled in PlexonChats.
 
 ## Install or upgrade
 
-Download the JAR and checksum from the [3.0 release](https://github.com/ZpkDxGames/PlexonChats/releases/tag/v3.0). See [release notes](docs/RELEASE-3.0.md).
+For 3.0 → 3.1.0, stop the server, back up the old JAR and `plugins/PlexonChats/`, then replace only the JAR with `PlexonChats-3.1.0.jar`.
 
-1. Stop the server and back up the PlexonChats plugin folder and old JAR.
-2. Replace the old JAR with `PlexonChats-3.0.jar` in `plugins/`. Keep only one PlexonChats JAR.
-3. Start the server. Existing 2.0 settings are retained, missing options are added, and the original config is backed up before migration.
-4. Edit `plugins/PlexonChats/config.yml`, then run `/chat reload`. Use `/chat admin` to preview formats and `/chat status` to inspect the scheduler/bridge.
+**Keep your existing `config.yml` and `players.yml`.** Version 3.1.0 does not require deleting the data folder, changing the configuration schema, or migrating player preferences to another storage system.
 
-**Upgrade note:** 2.0 ignored some format settings. Version 3.0 actually renders your saved channel/item formats, so the appearance may change. See [the upgrade guide](docs/UPGRADING.md), including rollback and staging checks.
+After startup, run:
+
+```text
+/plexon modules
+/plexon diagnostics
+/chat diagnostics
+/chat status
+```
+
+With compatible PlexonCore present, PlexonChats should report `Mode: CORE` and module state `READY` (or `DEGRADED` only for a configured optional integration that is currently unavailable).
+
+See [the 3.1 migration guide](docs/MIGRATION_3_1.md), [release notes](docs/RELEASE-3.1.0.md), and [upgrade guide](docs/UPGRADING.md).
 
 ## Customize a nickname
 
@@ -56,9 +66,9 @@ chat-components:
       value: "/msg {player_name} "
 ```
 
-`{player}` is the interactive nickname component; keep it in the channel format to retain the configured hover/click. Put `{rank_prefix}` separately where you want the Vault prefix.
+`{player}` is the interactive nickname component; keep it in the channel format to retain configured hover/click behavior. Put `{rank_prefix}` separately where you want the Vault prefix.
 
-See the [configuration guide](docs/CONFIGURATION.md) for placeholders, custom GUI buttons, scheduled-message examples, join/leave formats, and DiscordSRV setup. The [bundled config](src/main/resources/config.yml) contains the complete defaults and inline comments.
+See the [configuration guide](docs/CONFIGURATION.md) and the [bundled config](src/main/resources/config.yml) for complete settings.
 
 ## Commands
 
@@ -69,33 +79,40 @@ See the [configuration guide](docs/CONFIGURATION.md) for placeholders, custom GU
 | `/g [message]`, `/l [message]` | Select a channel, or send once to it | `plexonchats.global`, `plexonchats.local` |
 | `/msg <player> <message>`, `/reply <message>` | Private messages | `plexonchats.tell` |
 | `/announce <message>` | Server-wide announcement | `plexonchats.announce` |
-| `/chat admin`, `/chat status` | Administration menu and status | `plexonchats.manage` |
+| `/chat admin`, `/chat status` | Administration menu and concise status | `plexonchats.manage` |
+| `/chat diagnostics` | Core/chat/scheduler/integration diagnostics | `plexonchats.manage` |
 | `/chat reload` | Validate and apply configuration | `plexonchats.reload` |
 | `/chat automessages list` | Show scheduler state and groups | `plexonchats.automessages` |
 | `/chat automessages preview <group>` | Private, silent preview; does not advance rotation | `plexonchats.automessages` |
 | `/chat automessages send <group>` | Send the next message to eligible players now | `plexonchats.automessages` |
 | `/chat automessages pause`, `resume` | Temporarily pause/resume automatic delivery | `plexonchats.automessages` |
 
-All `/chat` subcommands also require `plexonchats.use`. Aliases: `/tell`, `/w`, `/r`, `/broadcast`, and `/bc`.
+All `/chat` subcommands also require `plexonchats.use`. Aliases remain `/tell`, `/w`, `/r`, `/broadcast`, and `/bc`. Full permission definitions are in [plugin.yml](src/main/resources/plugin.yml).
 
-Normal players get chat, GUI, items, mentions, PMs, and color/gradient formatting by default. Administration and bypass permissions default to operators. Full definitions are in [plugin.yml](src/main/resources/plugin.yml). Advanced player click/hover tags need both the explicit config option and `plexonchats.formatting.advanced`.
+## Public integration API
+
+Resolve `com.antondev.chats.api.PlexonChatsAPI` through Bukkit `ServicesManager`. It provides immutable preference snapshots and controlled channel/public-chat/PM operations while keeping internal stores, scheduler groups, PM maps, GUI state, and item-preview caches private.
+
+Mutating API calls are primary-thread-only. See [API.md](docs/API.md).
+
+Moderation integrations can continue listening to [PlexonChatEvent](src/main/java/com/antondev/chats/api/PlexonChatEvent.java). The event fires once, synchronously on the primary thread, after Paper lower-priority moderation edits/viewer restrictions have been captured and before PlexonChats delivers public chat. PMs do not fire it.
+
+## PlexonCore integration
+
+Core provides module lifecycle and observability; PlexonChats still owns chat. Core does not create a second public route, scheduler, preference store, or Discord forwarding path. See [PLEXONCORE.md](docs/PLEXONCORE.md).
 
 ## Build and test
 
-With Maven 3.9+ and JDK 25:
+With Maven 3.9+ and JDK 25, provision PlexonCore 1.0.0 into the local Maven repository as a `provided` dependency, then run:
 
 ```sh
 mvn --batch-mode --no-transfer-progress clean verify
 ```
 
-The deployable JAR is `target/PlexonChats-3.0.jar`. Test dependencies are not bundled. GitHub Actions verifies the 2.0 source ancestry, runs the same build, and uploads the JAR/checksum. A push to `3.0-Release` publishes `v3.0` only after verification passes; existing tags/releases are not overwritten. Pull requests and manual test runs do not publish.
+The deployable artifact is `target/PlexonChats-3.1.0.jar`. PlexonCore, Paper, and DiscordSRV runtime classes must not be bundled.
 
-Tests cover the committed 2.0 config migration, safe formatting, routing/permissions, GUI actions, preference persistence, message rotation/delivery, join/leave behavior, and DiscordSRV API behavior with mocked endpoints. They do **not** log a bot into Discord or replace a staging test on a real Paper server.
+GitHub Actions provisions the pinned official PlexonCore 1.0.0 JAR, verifies its SHA-256, builds against Paper 26.2/Java 25, runs regression tests, checks distribution contents, and uploads `PlexonChats-3.1.0.jar` plus `SHA256SUMS.txt`. Production GitHub releases are tag-driven (`v*`) rather than published from ordinary branch pushes.
 
-## Integration notes
+The test suite covers routing/permissions, moderation viewer/cancellation behavior, GUI safety, preference persistence, scheduler rotation/delivery, text/MiniMessage security, join/leave behavior, DiscordSRV behavior, and PlexonCore lifecycle contracts. Automated tests do not replace the required real Paper 26.2 staging validation before production deployment.
 
-Local chat and private messages are never sent through the PlexonChats Discord bridge. Global receive permissions are separate from send permissions. Players still receive public channels while choosing which channel to send to.
-
-Moderation integrations can listen to the synchronous, cancellable [PlexonChatEvent](src/main/java/com/antondev/chats/api/PlexonChatEvent.java), which covers ordinary public chat and `/g`/`/l`. Cancel the event, change its message/recipients, or set `setDiscordAllowed(false)` before delivery. Native Paper chat cancellation and viewers set before PlexonChats' HIGHEST listener are respected. Command-based chat requires the PlexonChats event for moderation.
-
-Created by **Tonim / ZpkDxGames** · [GitHub](https://github.com/ZpkDxGames/PlexonChats) · [Other projects](https://www.spigotmc.org/resources/authors/tonim.2341103/)
+Created by **Tonim / ZpkDxGames** · [GitHub](https://github.com/ZpkDxGames/PlexonChats)
