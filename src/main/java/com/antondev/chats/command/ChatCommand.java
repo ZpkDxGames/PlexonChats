@@ -2,8 +2,11 @@ package com.antondev.chats.command;
 
 import com.antondev.chats.ChatChannel;
 import com.antondev.chats.PlexonChats;
+import com.antondev.chats.api.PlexonChatsAPI;
 import com.antondev.chats.gui.ChatGUIHolder;
+import com.antondev.chats.integration.core.CoreBridge;
 import net.kyori.adventure.text.Component;
+import org.bukkit.Bukkit;
 import org.bukkit.command.*;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
@@ -37,6 +40,7 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
                 if (permission(sender, "plexonchats.manage")) sender.sendMessage(plugin.getConfigManager().message("status", Map.of(
                         "version", plugin.getPluginMeta().getVersion(), "discord", plugin.getDiscordBridge().status(), "scheduler", plugin.getAutoMessages().status())));
             }
+            case "diagnostics" -> { if (permission(sender, "plexonchats.manage")) diagnostics(sender); }
             case "automessages", "automsg" -> {
                 if (permission(sender, "plexonchats.automessages")) autoMessages(sender, args);
             }
@@ -60,6 +64,49 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
         if (channel == null) player.sendMessage(plugin.getConfigManager().getUnknownChannel(name));
         else plugin.getChatManager().selectChannel(player, channel);
     }
+
+    private void diagnostics(CommandSender sender) {
+        CoreBridge core = plugin.getCoreBridge();
+        boolean apiRegistered = Bukkit.getServicesManager().getRegistration(PlexonChatsAPI.class) != null;
+        long guiSessions = Bukkit.getOnlinePlayers().stream()
+                .filter(player -> player.getOpenInventory().getTopInventory().getHolder() instanceof ChatGUIHolder)
+                .count();
+        String papi = Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI") ? "READY" : "NOT INSTALLED";
+        String vault = Bukkit.getPluginManager().isPluginEnabled("Vault") ? "READY/PROVIDER DEPENDENT" : "NOT INSTALLED";
+
+        sender.sendMessage(Component.text("PlexonChats Diagnostics"));
+        diagnostic(sender, "Plugin", plugin.getPluginMeta().getVersion());
+        diagnostic(sender, "Paper", Bukkit.getServer().getVersion());
+        diagnostic(sender, "Java", System.getProperty("java.version", "unknown"));
+        diagnostic(sender, "Mode", core == null ? "STANDALONE" : core.mode());
+        diagnostic(sender, "Core plugin/API", core == null ? "- / -" : core.pluginVersion() + " / " + core.apiVersion());
+        diagnostic(sender, "Supported Core", CoreBridge.SUPPORTED_API_RANGE);
+        diagnostic(sender, "Module", core == null ? "NOT_REGISTERED" : core.registrationState());
+        diagnostic(sender, "Core detail", core == null ? "PlexonCore unavailable" : core.detail());
+        diagnostic(sender, "Channels", "LOCAL=" + state(plugin.getConfigManager().isLocalEnabled())
+                + ", GLOBAL=" + state(plugin.getConfigManager().isGlobalEnabled()));
+        diagnostic(sender, "Public API", apiRegistered ? "REGISTERED" : "NOT REGISTERED");
+        diagnostic(sender, "PlexonChatEvent", "READY");
+        diagnostic(sender, "Preferences", "players.yml / " + (plugin.getPreferences().writable() ? "writable" : "READ-ONLY")
+                + " / dirty=" + plugin.getPreferences().dirty());
+        diagnostic(sender, "Preference writer", plugin.getPreferences().writerState());
+        diagnostic(sender, "Preference save task", state(plugin.getPreferences().saveTaskActive()));
+        diagnostic(sender, "Auto-messages", plugin.getAutoMessages().status());
+        diagnostic(sender, "Auto-message groups", String.valueOf(plugin.getAutoMessages().groupNames().size()));
+        diagnostic(sender, "Auto-message task", state(plugin.getAutoMessages().taskActive()));
+        diagnostic(sender, "Item preview tokens", String.valueOf(plugin.getItemPreviewManager().size()));
+        diagnostic(sender, "Item cleanup task", state(plugin.cleanupTaskActive()));
+        diagnostic(sender, "GUI sessions", String.valueOf(guiSessions));
+        diagnostic(sender, "PlaceholderAPI", papi);
+        diagnostic(sender, "Vault", vault);
+        diagnostic(sender, "DiscordSRV", plugin.getDiscordBridge().status());
+    }
+
+    private static void diagnostic(CommandSender sender, String label, String value) {
+        sender.sendMessage(Component.text(" • " + label + ": " + value));
+    }
+
+    private static String state(boolean active) { return active ? "ACTIVE" : "INACTIVE"; }
 
     private void autoMessages(CommandSender sender, String[] args) {
         var manager = plugin.getAutoMessages();
@@ -98,7 +145,7 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
         helpLine(sender, "plexonchats.local", "/l [message] — Select/use nearby chat");
         helpLine(sender, "plexonchats.tell", "/msg <player> <message> and /reply <message>");
         helpLine(sender, "plexonchats.announce", "/announce <message> — Broadcast");
-        helpLine(sender, "plexonchats.manage", "/chat admin and /chat status — Administration");
+        helpLine(sender, "plexonchats.manage", "/chat admin, /chat status and /chat diagnostics — Administration");
         helpLine(sender, "plexonchats.reload", "/chat reload — Safely reload configuration");
         helpLine(sender, "plexonchats.automessages", "/chat automessages <list|pause|resume|send|preview> [group]");
     }
@@ -112,7 +159,7 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
         if (args.length == 1) {
             options.addAll(List.of("help", "channel"));
             if (sender.hasPermission("plexonchats.gui")) options.add("gui");
-            if (sender.hasPermission("plexonchats.manage")) options.addAll(List.of("admin", "status"));
+            if (sender.hasPermission("plexonchats.manage")) options.addAll(List.of("admin", "status", "diagnostics"));
             if (sender.hasPermission("plexonchats.reload")) options.add("reload");
             if (sender.hasPermission("plexonchats.automessages")) options.add("automessages");
         } else if (args.length == 2 && List.of("channel", "ch", "c").contains(args[0].toLowerCase(Locale.ROOT))) {
