@@ -1,5 +1,7 @@
 package com.antondev.chats;
 
+import com.antondev.chats.api.PlexonChatsAPI;
+import com.antondev.chats.api.PlexonChatsApiImpl;
 import com.antondev.chats.automessage.AutoMessageManager;
 import com.antondev.chats.chat.ChatComponentFactory;
 import com.antondev.chats.chat.ChatListener;
@@ -10,6 +12,8 @@ import com.antondev.chats.config.ConfigManager;
 import com.antondev.chats.gui.ChatGUI;
 import com.antondev.chats.gui.GUIListener;
 import com.antondev.chats.integration.DiscordBridge;
+import com.antondev.chats.integration.core.CoreBridge;
+import com.antondev.chats.integration.core.CoreBridgeFactory;
 import com.antondev.chats.item.ItemPreviewManager;
 import com.antondev.chats.message.PrivateMessageManager;
 import com.antondev.chats.placeholder.PlaceholderApiService;
@@ -17,15 +21,20 @@ import com.antondev.chats.placeholder.PlaceholderHandler;
 import com.antondev.chats.player.PlayerInfoService;
 import com.antondev.chats.player.PreferenceStore;
 import com.antondev.chats.text.TextService;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.logging.Level;
+import org.bukkit.Bukkit;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.server.PluginDisableEvent;
 import org.bukkit.event.server.PluginEnableEvent;
+import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
-import java.util.Objects;
 
 public class PlexonChats extends JavaPlugin implements Listener {
     private ConfigManager configManager;
@@ -41,42 +50,64 @@ public class PlexonChats extends JavaPlugin implements Listener {
     private ChatGUI chatGUI;
     private AutoMessageManager autoMessages;
     private DiscordBridge discordBridge = DiscordBridge.inactive("DISABLED");
+    private MessageCommand messageCommand;
+    private PlexonChatsAPI api;
+    private CoreBridge coreBridge;
     private BukkitTask cleanupTask;
 
-    @Override public void onEnable() {
-        configManager = new ConfigManager(this);
-        preferences = new PreferenceStore(this);
-        placeholderApiService = new PlaceholderApiService(this);
-        playerInfoService = new PlayerInfoService(this);
-        text = new TextService(this);
-        chatManager = new ChatManager(this);
-        privateMessageManager = new PrivateMessageManager();
-        itemPreviewManager = new ItemPreviewManager(this);
-        placeholderHandler = new PlaceholderHandler(this);
-        chatComponentFactory = new ChatComponentFactory(this);
-        autoMessages = new AutoMessageManager(this);
-        chatGUI = new ChatGUI(this);
-        discordBridge = DiscordBridge.create(this);
-        autoMessages.reload();
+    @Override
+    public void onEnable() {
+        try {
+            coreBridge = CoreBridgeFactory.resolve(this);
+            coreBridge.registerStarting();
 
-        getServer().getPluginManager().registerEvents(new ChatListener(this), this);
-        getServer().getPluginManager().registerEvents(new ConnectionMessageListener(this), this);
-        getServer().getPluginManager().registerEvents(new GUIListener(this), this);
-        getServer().getPluginManager().registerEvents(this, this);
-        register("chat", new ChatCommand(this));
-        register("g", new GlobalChatCommand(this));
-        register("l", new LocalChatCommand(this));
-        register("announce", new AnnouncementCommand(this));
-        MessageCommand messages = new MessageCommand(this);
-        register("msg", messages);
-        register("reply", new ReplyCommand(this, messages));
-        register("chatitem", new ChatItemPreviewCommand(this));
-        cleanupTask = getServer().getScheduler().runTaskTimer(this, itemPreviewManager::cleanupExpired, 1200, 1200);
-        getLogger().info("PlexonChats " + getPluginMeta().getVersion() + " enabled. DiscordSRV: " + discordBridge.status());
+            configManager = new ConfigManager(this);
+            preferences = new PreferenceStore(this);
+            placeholderApiService = new PlaceholderApiService(this);
+            playerInfoService = new PlayerInfoService(this);
+            text = new TextService(this);
+            chatManager = new ChatManager(this);
+            privateMessageManager = new PrivateMessageManager();
+            itemPreviewManager = new ItemPreviewManager(this);
+            placeholderHandler = new PlaceholderHandler(this);
+            chatComponentFactory = new ChatComponentFactory(this);
+            autoMessages = new AutoMessageManager(this);
+            chatGUI = new ChatGUI(this);
+            discordBridge = DiscordBridge.create(this);
+            autoMessages.reload();
+
+            getServer().getPluginManager().registerEvents(new ChatListener(this), this);
+            getServer().getPluginManager().registerEvents(new ConnectionMessageListener(this), this);
+            getServer().getPluginManager().registerEvents(new GUIListener(this), this);
+            getServer().getPluginManager().registerEvents(this, this);
+            register("chat", new ChatCommand(this));
+            register("g", new GlobalChatCommand(this));
+            register("l", new LocalChatCommand(this));
+            register("announce", new AnnouncementCommand(this));
+            messageCommand = new MessageCommand(this);
+            register("msg", messageCommand);
+            register("reply", new ReplyCommand(this, messageCommand));
+            register("chatitem", new ChatItemPreviewCommand(this));
+
+            cleanupTask = getServer().getScheduler().runTaskTimer(this, itemPreviewManager::cleanupExpired, 1200, 1200);
+            api = new PlexonChatsApiImpl(this);
+            getServer().getServicesManager().register(PlexonChatsAPI.class, api, this, ServicePriority.Normal);
+
+            publishCoreHealth();
+            getLogger().info("PlexonChats " + getPluginMeta().getVersion()
+                    + " enabled. Mode: " + coreBridge.mode() + ", DiscordSRV: " + discordBridge.status());
+        } catch (Exception | LinkageError exception) {
+            if (coreBridge != null) {
+                coreBridge.markFailed("Chat startup failed: " + exception.getClass().getSimpleName());
+            }
+            getLogger().log(Level.SEVERE, "PlexonChats could not start safely; disabling without partial operation", exception);
+            shutdown();
+            Bukkit.getPluginManager().disablePlugin(this);
+        }
     }
 
     private void register(String name, CommandExecutor executor) {
-        var command = Objects.requireNonNull(getCommand(name));
+        var command = Objects.requireNonNull(getCommand(name), "Command missing from plugin.yml: " + name);
         command.setExecutor(executor);
         if (executor instanceof TabCompleter completer) command.setTabCompleter(completer);
     }
@@ -95,39 +126,91 @@ public class PlexonChats extends JavaPlugin implements Listener {
         discordBridge.close();
         discordBridge = DiscordBridge.create(this);
         itemPreviewManager.cleanupExpired();
+        publishCoreHealth();
         return true;
     }
 
-    @EventHandler public void onOptionalPluginEnable(PluginEnableEvent event) {
+    @EventHandler
+    public void onOptionalPluginEnable(PluginEnableEvent event) {
         String name = event.getPlugin().getName();
         if (name.equals("DiscordSRV")) {
             discordBridge.close();
             discordBridge = DiscordBridge.create(this);
-        } else if (name.equals("PlaceholderAPI")) placeholderApiService.refreshHooks();
-        else if (name.equals("Vault")) playerInfoService.refreshHooks();
+        } else if (name.equals("PlaceholderAPI")) {
+            placeholderApiService.refreshHooks();
+        } else if (name.equals("Vault")) {
+            playerInfoService.refreshHooks();
+        } else {
+            return;
+        }
+        publishCoreHealth();
     }
 
-    @EventHandler public void onOptionalPluginDisable(PluginDisableEvent event) {
+    @EventHandler
+    public void onOptionalPluginDisable(PluginDisableEvent event) {
         String name = event.getPlugin().getName();
         if (name.equals("DiscordSRV")) {
             discordBridge.close();
             discordBridge = DiscordBridge.inactive("NOT_INSTALLED");
-        } else if (name.equals("PlaceholderAPI")) placeholderApiService.refreshHooks();
-        else if (name.equals("Vault")) playerInfoService.refreshHooks();
+        } else if (name.equals("PlaceholderAPI")) {
+            placeholderApiService.refreshHooks();
+        } else if (name.equals("Vault")) {
+            playerInfoService.refreshHooks();
+        } else {
+            return;
+        }
+        publishCoreHealth();
     }
 
-    @Override public void onDisable() {
-        if (cleanupTask != null) cleanupTask.cancel();
-        if (autoMessages != null) autoMessages.close();
-        discordBridge.close();
-        if (chatGUI != null) chatGUI.closeAll();
-        if (preferences != null) preferences.close();
-        if (chatManager != null) chatManager.clearAll();
-        if (privateMessageManager != null) privateMessageManager.clear();
-        if (itemPreviewManager != null) itemPreviewManager.clear();
+    public void publishCoreHealth() {
+        if (coreBridge == null || configManager == null || api == null) return;
+        List<String> degraded = new ArrayList<>();
+        if (configManager.bool("integrations.discordsrv.enabled", false)) {
+            String discord = discordBridge.status();
+            if (!discord.equals("ACTIVE")) degraded.add("DiscordSRV " + discord);
+        }
+
+        String readyDetail = "Chat routing, preferences, scheduler, GUI, API and optional bridge operational";
+        if (degraded.isEmpty()) coreBridge.markReady(readyDetail);
+        else coreBridge.markDegraded(readyDetail + "; " + String.join(", ", degraded));
+    }
+
+    @Override
+    public void onDisable() {
+        shutdown();
         getLogger().info("PlexonChats disabled.");
     }
 
+    private void shutdown() {
+        if (cleanupTask != null) {
+            cleanupTask.cancel();
+            cleanupTask = null;
+        }
+        if (autoMessages != null) {
+            autoMessages.close();
+            autoMessages = null;
+        }
+        if (discordBridge != null) {
+            discordBridge.close();
+            discordBridge = DiscordBridge.inactive("DISABLED");
+        }
+        if (chatGUI != null) chatGUI.closeAll();
+        if (preferences != null) {
+            preferences.close();
+            preferences = null;
+        }
+        if (chatManager != null) chatManager.clearAll();
+        if (privateMessageManager != null) privateMessageManager.clear();
+        if (itemPreviewManager != null) itemPreviewManager.clear();
+        getServer().getServicesManager().unregisterAll(this);
+        api = null;
+        if (coreBridge != null) {
+            coreBridge.unregister();
+            coreBridge = null;
+        }
+    }
+
+    public boolean cleanupTaskActive() { return cleanupTask != null && !cleanupTask.isCancelled(); }
     public ConfigManager getConfigManager() { return configManager; }
     public PreferenceStore getPreferences() { return preferences; }
     public ChatManager getChatManager() { return chatManager; }
@@ -141,4 +224,7 @@ public class PlexonChats extends JavaPlugin implements Listener {
     public ChatGUI getChatGUI() { return chatGUI; }
     public AutoMessageManager getAutoMessages() { return autoMessages; }
     public DiscordBridge getDiscordBridge() { return discordBridge; }
+    public MessageCommand getMessageCommand() { return messageCommand; }
+    public PlexonChatsAPI getApi() { return api; }
+    public CoreBridge getCoreBridge() { return coreBridge; }
 }
