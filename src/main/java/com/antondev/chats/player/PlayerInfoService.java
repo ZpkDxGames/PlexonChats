@@ -2,8 +2,6 @@ package com.antondev.chats.player;
 
 import com.antondev.chats.PlexonChats;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.minimessage.MiniMessage;
-import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.Statistic;
@@ -12,7 +10,6 @@ import org.bukkit.plugin.RegisteredServiceProvider;
 
 import java.lang.reflect.Method;
 import java.text.DecimalFormat;
-import java.util.regex.Pattern;
 
 /**
  * Provides player information used in chat hovers.
@@ -31,27 +28,14 @@ public class PlayerInfoService {
     private Method chatGetPrefixMethod;
     private Method economyGetBalanceMethod;
 
-    private static final Pattern LEGACY_COLOR_PATTERN = Pattern.compile("(?i)[&§][0-9A-FK-ORX]");
 
     public PlayerInfoService(PlexonChats plugin) {
         this.plugin = plugin;
     }
 
     public Component buildPlayerHover(Player player) {
-        MiniMessage mm = plugin.getConfigManager().getMiniMessage();
-        String playtime = formatPlaytime(player);
-        String rank = stripLegacyColors(getRankDisplayText(player));
-        String balance = getBalance(player);
-
-        String hover = "<b><gradient:#00e6ff:#00ffac>Player Info</gradient></b>\n"
-                + "<gray>Name: <white>" + player.getName() + "\n"
-                + "<gray>World: <white>" + player.getWorld().getName() + "\n"
-                + "<gray>Playtime: <white>" + playtime + "\n"
-                + "<gray>Rank: <white>" + rank + "\n"
-                + "<gray>Balance: <white>" + balance + "\n"
-                + "<dark_gray>Click to private message";
-
-        return mm.deserialize(hover);
+        return plugin.getText().render(String.join("\n", plugin.getConfigManager()
+                .lines("chat-components.player.hover.lines")), player);
     }
 
     public Component buildRankPrefix(Player player) {
@@ -60,12 +44,11 @@ public class PlayerInfoService {
             return Component.empty();
         }
 
-        Component prefix = LegacyComponentSerializer.legacySection()
-                .deserialize(rankDisplay.replace('&', '§'));
+        Component prefix = com.antondev.chats.text.TextService.legacy(rankDisplay);
         return prefix.append(Component.space());
     }
 
-    private String formatPlaytime(Player player) {
+    public String formatPlaytime(Player player) {
         long seconds = player.getStatistic(Statistic.PLAY_ONE_MINUTE) / 20L;
         long days = seconds / 86400;
         long hours = (seconds % 86400) / 3600;
@@ -80,7 +63,7 @@ public class PlayerInfoService {
         return minutes + "m";
     }
 
-    private String getRank(Player player) {
+    public String getRank(Player player) {
         hookVaultIfNeeded();
         if (permissionProvider == null || permissionPrimaryGroupMethod == null) {
             return "N/A";
@@ -115,7 +98,7 @@ public class PlayerInfoService {
         return "§7[§f" + group + "§7]";
     }
 
-    private String getBalance(Player player) {
+    public String getBalance(Player player) {
         hookVaultIfNeeded();
         if (economyProvider == null || economyGetBalanceMethod == null) {
             return "N/A";
@@ -139,7 +122,7 @@ public class PlayerInfoService {
         }
         vaultChecked = true;
 
-        if (Bukkit.getPluginManager().getPlugin("Vault") == null) {
+        if (!Bukkit.getPluginManager().isPluginEnabled("Vault")) {
             return;
         }
 
@@ -187,11 +170,14 @@ public class PlayerInfoService {
         }
     }
 
-    private String stripLegacyColors(String input) {
-        if (input == null || input.isBlank()) {
-            return "N/A";
-        }
-        String stripped = LEGACY_COLOR_PATTERN.matcher(input).replaceAll("").trim();
-        return stripped.isBlank() ? "N/A" : stripped;
+    public void refreshHooks() {
+        vaultChecked = false;
+        permissionProvider = null;
+        chatProvider = null;
+        economyProvider = null;
+        permissionPrimaryGroupMethod = null;
+        chatGetPrefixMethod = null;
+        economyGetBalanceMethod = null;
     }
+
 }

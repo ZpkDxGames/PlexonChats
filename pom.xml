@@ -1,26 +1,38 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.antondev</groupId>
     <artifactId>PlexonChats</artifactId>
-    <version>1.0</version>
+    <version>3.1.0</version>
     <packaging>jar</packaging>
 
     <name>PlexonChats</name>
     <description>A powerful, configurable chat management plugin for Paper servers</description>
+    <url>https://github.com/ZpkDxGames/PlexonChats</url>
 
     <properties>
         <java.version>25</java.version>
+        <paper.version>26.2.build.121-stable</paper.version>
+        <plexoncore.version>1.0.0</plexoncore.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.build.outputTimestamp>2026-09-07T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <repositories>
         <repository>
+            <id>central</id>
+            <url>https://repo.maven.apache.org/maven2/</url>
+        </repository>
+        <repository>
             <id>papermc</id>
             <url>https://repo.papermc.io/repository/maven-public/</url>
+        </repository>
+        <repository>
+            <id>discordsrv</id>
+            <url>https://nexus.scarsz.me/content/groups/public/</url>
         </repository>
     </repositories>
 
@@ -28,8 +40,46 @@
         <dependency>
             <groupId>io.papermc.paper</groupId>
             <artifactId>paper-api</artifactId>
-            <version>1.21.11-R0.1-SNAPSHOT</version>
+            <version>${paper.version}</version>
             <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.zpkdxgames</groupId>
+            <artifactId>PlexonCore</artifactId>
+            <version>${plexoncore.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.discordsrv</groupId>
+            <artifactId>discordsrv</artifactId>
+            <version>1.30.5</version>
+            <scope>provided</scope>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>6.0.3</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Paper supplies Log4j at runtime; DiscordSRV needs Core on the test classpath. -->
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <version>2.24.1</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>5.23.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockbukkit.mockbukkit</groupId>
+            <artifactId>mockbukkit-v26.2</artifactId>
+            <version>4.116.1</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
@@ -39,16 +89,56 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.6.2</version>
+                <executions>
+                    <execution>
+                        <id>enforce-build</id>
+                        <goals><goal>enforce</goal></goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion><version>[25,26)</version></requireJavaVersion>
+                                <requireMavenVersion><version>[3.9.0,)</version></requireMavenVersion>
+                                <dependencyConvergence/>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.4</version>
+                <configuration>
+                    <useModulePath>false</useModulePath>
+                    <argLine>"-javaagent:${settings.localRepository}/org/mockito/mockito-core/5.23.0/mockito-core-5.23.0.jar" --enable-native-access=ALL-UNNAMED</argLine>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.13.0</version>
+                <version>3.14.1</version>
                 <configuration>
                     <release>${java.version}</release>
+                    <parameters>true</parameters>
+                    <encoding>UTF-8</encoding>
+                    <!-- Isolate javac: avoids deferred-diagnostic crashes in the Java 25 in-process compiler. -->
+                    <fork>true</fork>
                 </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
-                <version>3.4.1</version>
+                <version>3.4.2</version>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Implementation-Title>PlexonChats</Implementation-Title>
+                            <Implementation-Version>${project.version}</Implementation-Version>
+                            <Implementation-Vendor>ZpkDxGames</Implementation-Vendor>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
             </plugin>
         </plugins>
         <resources>

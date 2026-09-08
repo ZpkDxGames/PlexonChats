@@ -40,18 +40,23 @@ public class PlaceholderApiService {
         }
         checked = true;
 
-        if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") == null) {
+        if (!Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
             plugin.getLogger().info("PlaceholderAPI not detected. Placeholder support is disabled.");
             return;
         }
 
         try {
             Class<?> clazz = Class.forName("me.clip.placeholderapi.PlaceholderAPI");
-            setPlaceholdersMethod = clazz.getMethod("setPlaceholders", Player.class, String.class);
+            setPlaceholdersMethod = clazz.getMethod("setPlaceholders", org.bukkit.OfflinePlayer.class, String.class);
             plugin.getLogger().info("PlaceholderAPI detected. Placeholder support enabled.");
         } catch (ClassNotFoundException | NoSuchMethodException ex) {
             setPlaceholdersMethod = null;
             plugin.getLogger().warning("PlaceholderAPI was found but compatible API methods were not detected.");
         }
+    }
+
+    public void refreshHooks() {
+        checked = false;
+        setPlaceholdersMethod = null;
     }
 }

@@ -1,15 +1,19 @@
 name: PlexonChats
 version: '${project.version}'
 main: com.antondev.chats.PlexonChats
-api-version: '1.21'
+api-version: '26.2'
 description: A powerful, configurable chat management plugin for Paper servers
-authors: [Plexon]
-softdepend: [Vault, PlaceholderAPI]
+authors: [Tonim, ZpkDxGames]
+softdepend:
+  - PlexonCore
+  - Vault
+  - PlaceholderAPI
+  - DiscordSRV
 
 commands:
   chat:
     description: Main PlexonChats command
-    usage: /chat <channel|gui|reload>
+    usage: /chat <channel|gui|admin|reload|status|diagnostics|automessages>
     permission: plexonchats.use
   g:
     description: Quick global chat shortcut
@@ -80,3 +84,30 @@ permissions:
       plexonchats.reload: true
       plexonchats.announce: true
       plexonchats.tell: true
+      plexonchats.manage: true
+      plexonchats.automessages: true
+      plexonchats.formatting: true
+      plexonchats.formatting.advanced: true
+      plexonchats.bypass.cooldown: true
+      plexonchats.bypass.private: true
+  plexonchats.manage:
+    description: Open the administration GUI and view integration status
+    default: op
+  plexonchats.automessages:
+    description: Preview, broadcast, pause and resume scheduled messages
+    default: op
+  plexonchats.formatting:
+    description: Use colors, decorations and gradients in messages
+    default: true
+  plexonchats.formatting.advanced:
+    description: Use advanced MiniMessage tags in player messages (trusted staff only)
+    default: op
+  plexonchats.bypass.cooldown:
+    description: Bypass chat cooldown and duplicate-message protection
+    default: op
+  plexonchats.bypass.private:
+    description: Send private messages to players who disabled receiving them
+    default: op
+  plexonchats.connection.silent:
+    description: Suppress this player's custom join and quit messages
+    default: false
