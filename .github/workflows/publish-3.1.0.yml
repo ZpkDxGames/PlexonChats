@@ -1,0 +1,68 @@
+name: Publish PlexonChats 3.1.0
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/publish-3.1.0.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v5
+
+      - name: Download verified 3.1.0 artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh run download 34181782800 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "PlexonChats-3.1.0-a0aaaf2300413c3526c7e8d3e1a4749e7bf387fb" \
+            --dir dist
+          test -s dist/PlexonChats-3.1.0.jar
+          test -s dist/SHA256SUMS.txt
+          (cd dist && sha256sum --check SHA256SUMS.txt)
+          echo "4a73bb91d49e33e5e2c7f8667e11af0b7018138d850ad6bbbb12ca4b155b87c1  dist/PlexonChats-3.1.0.jar" | sha256sum --check
+
+      - name: Publish v3.1.0 release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v3.1.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v3.1.0 \
+              dist/PlexonChats-3.1.0.jar \
+              dist/SHA256SUMS.txt \
+              --clobber \
+              --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create v3.1.0 \
+              dist/PlexonChats-3.1.0.jar \
+              dist/SHA256SUMS.txt \
+              --target 06836e03fd1fd8bce4a257c20da8913d37a3c6d7 \
+              --title "PlexonChats 3.1.0" \
+              --notes-file docs/RELEASE-3.1.0.md \
+              --repo "$GITHUB_REPOSITORY"
+          fi
+
+      - name: Verify published assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view v3.1.0 \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease,url,assets
