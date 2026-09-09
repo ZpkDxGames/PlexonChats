@@ -23,9 +23,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PlexonCoreBridgeLifecycleTest {
     @Test
-    void compatibleCorePublishesLifecycleAndUnregistersCleanly() {
-        Plugin plugin = plugin("PlexonChats", "3.1.0");
-        CoreVersion version = CoreVersion.of(1, 0, "1.0.0");
+    void compatibleCore2PublishesLifecycleAndUnregistersCleanly() {
+        Plugin plugin = plugin("PlexonChats", "3.1.1");
+        CoreVersion version = CoreVersion.of(2, 0, "2.0.4");
         ModuleRegistry modules = new ModuleRegistry(version);
         IntegrationRegistry integrations = integrations();
         integrations.publish("DISCORDSRV", "DiscordSRV", "1.30.5", IntegrationState.READY, Set.of("chat"), "Ready");
@@ -54,9 +54,9 @@ class PlexonCoreBridgeLifecycleTest {
     }
 
     @Test
-    void incompatibleCoreNeverTransitionsToReady() {
-        Plugin plugin = plugin("PlexonChats", "3.1.0");
-        CoreVersion version = CoreVersion.of(2, 0, "2.0.0");
+    void incompatibleCore3NeverTransitionsToReady() {
+        Plugin plugin = plugin("PlexonChats", "3.1.1");
+        CoreVersion version = CoreVersion.of(3, 0, "3.0.0");
         ModuleRegistry modules = new ModuleRegistry(version);
         IntegrationRegistry integrations = integrations();
         PlexonCoreBridge bridge = new PlexonCoreBridge(plugin, api(version, modules, integrations));
@@ -77,9 +77,9 @@ class PlexonCoreBridgeLifecycleTest {
 
     @Test
     void duplicateRegistrationOwnedByAnotherPluginIsNotReplacedOrRemoved() {
-        Plugin plugin = plugin("PlexonChats", "3.1.0");
+        Plugin plugin = plugin("PlexonChats", "3.1.1");
         Plugin other = plugin("OtherChats", "9.9.9");
-        CoreVersion version = CoreVersion.of(1, 0, "1.0.0");
+        CoreVersion version = CoreVersion.of(2, 0, "2.0.4");
         ModuleRegistry modules = new ModuleRegistry(version);
         IntegrationRegistry integrations = integrations();
         ModuleDescriptor existing = new ModuleDescriptor(
