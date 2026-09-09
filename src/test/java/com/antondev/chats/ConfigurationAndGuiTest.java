@@ -79,8 +79,8 @@ class ConfigurationAndGuiTest extends PluginTestBase {
         assertTrue(migrated.getConfigurationSection("gui.items").getKeys(false).isEmpty());
         assertTrue(migrated.getConfigurationSection("auto-messages.groups").getKeys(false).isEmpty());
     }
-    @Test void releaseMetadataMatchesThreePointOneZero() {
-        assertEquals("3.1.0", plugin.getPluginMeta().getVersion());
+    @Test void releaseMetadataMatchesThreePointOneOne() {
+        assertEquals("3.1.1", plugin.getPluginMeta().getVersion());
         assertEquals(3, com.antondev.chats.config.ConfigUpgrader.VERSION);
     }
     @Test void rowsAndCustomButtonPositionsAreHonored() throws Exception {
