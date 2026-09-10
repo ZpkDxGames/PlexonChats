@@ -16,12 +16,17 @@ import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** DiscordSRV 1.30.5 API. This class is loaded only if DiscordSRV is installed and enabled. */
 public final class DiscordSrvBridge implements DiscordBridge {
+    private static final int OUTBOUND_QUEUE_CAPACITY = 256;
+    private static final int MAX_OUTBOUND_PER_TICK = 64;
+
     private final PlexonChats plugin;
     private final String channel;
     private final boolean outgoing;
@@ -31,6 +36,8 @@ public final class DiscordSrvBridge implements DiscordBridge {
     private final String incomingFormat;
     private final String receivePermission;
     private final AtomicBoolean warned = new AtomicBoolean();
+    private final ArrayBlockingQueue<Runnable> outbound = new ArrayBlockingQueue<>(OUTBOUND_QUEUE_CAPACITY);
+    private final BukkitTask outboundWorker;
     private volatile boolean closed;
 
     public DiscordSrvBridge(PlexonChats plugin) {
@@ -44,6 +51,7 @@ public final class DiscordSrvBridge implements DiscordBridge {
         incomingFormat = config.string("integrations.discordsrv.incoming-format", "{message}");
         receivePermission = config.string("integrations.discordsrv.receive-permission", "");
         DiscordSRV.api.subscribe(this);
+        outboundWorker = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, this::drainOutbound, 1L, 1L);
         plugin.getLogger().info("DiscordSRV adapter registered for game channel '" + channel + "'. Only global chat is forwarded.");
     }
 
@@ -74,7 +82,7 @@ public final class DiscordSrvBridge implements DiscordBridge {
         if (!status().equals("ACTIVE")) return;
         DiscordSRV discord = DiscordSRV.getPlugin();
         String text = safeMentions(PlainTextComponentSerializer.plainText().serialize(event.getMessage()));
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+        enqueue(() -> {
             if (closed) return;
             try { discord.processChatMessage(event.getPlayer(), text, channel, false, event); }
             catch (RuntimeException | LinkageError ex) { warn(ex); }
@@ -98,6 +106,8 @@ public final class DiscordSrvBridge implements DiscordBridge {
                     "discord_name", Component.text(name),
                     "discord_user", Component.text(event.getAuthor().getName()),
                     "discord_channel", Component.text(event.getChannel().getName()));
+            // Discord callbacks are not guaranteed to be on the primary thread. One sync handoff is required
+            // for Bukkit player/permission delivery; unlike outgoing player chat, this is not one task per MC message.
             Bukkit.getScheduler().runTask(plugin, () -> {
                 if (closed || !plugin.getConfigManager().isGlobalEnabled()) return;
                 Component rendered = plugin.getText().render(incomingFormat, null, values);
@@ -115,7 +125,7 @@ public final class DiscordSrvBridge implements DiscordBridge {
             var destination = DiscordSRV.getPlugin().getDestinationTextChannelForGameChannelName(channel);
             String text = safeMentions(PlainTextComponentSerializer.plainText().serialize(message));
             if (text.isBlank()) return;
-            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            enqueue(() -> {
                 if (closed) return;
                 try { DiscordUtil.sendMessage(destination, text); }
                 catch (RuntimeException | LinkageError ex) { warn(ex); }
@@ -123,6 +133,25 @@ public final class DiscordSrvBridge implements DiscordBridge {
         } catch (RuntimeException | LinkageError ex) { warn(ex); }
     }
 
+    private void enqueue(Runnable work) {
+        if (closed) return;
+        if (!outbound.offer(work)) {
+            warn(new IllegalStateException("outbound queue full (capacity=" + OUTBOUND_QUEUE_CAPACITY + ")"));
+        }
+    }
+
+    private void drainOutbound() {
+        if (closed) return;
+        for (int i = 0; i < MAX_OUTBOUND_PER_TICK; i++) {
+            Runnable work = outbound.poll();
+            if (work == null) return;
+            try { work.run(); }
+            catch (RuntimeException | LinkageError ex) { warn(ex); }
+        }
+    }
+
+    int pendingOutbound() { return outbound.size(); }
+    boolean outboundWorkerActive() { return !outboundWorker.isCancelled(); }
     private String safeMentions(String value) { return suppressMentions ? value.replace("@", "@\u200B") : value; }
     private void warn(Throwable error) {
         plugin.getDiagnostics().recordIntegrationFailure("DiscordSRV", error);
@@ -132,6 +161,8 @@ public final class DiscordSrvBridge implements DiscordBridge {
     @Override public void close() {
         if (closed) return;
         closed = true;
+        outboundWorker.cancel();
+        outbound.clear();
         try { DiscordSRV.api.unsubscribe(this); }
         catch (RuntimeException | LinkageError ex) { warn(ex); }
     }
