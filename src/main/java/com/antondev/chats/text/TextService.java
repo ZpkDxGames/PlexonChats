@@ -34,6 +34,7 @@ public final class TextService {
         try {
             return templates.render(source, key -> extra.containsKey(key) ? extra.get(key) : resolve(subject, key));
         } catch (IllegalArgumentException ex) {
+            plugin.getDiagnostics().formatFailure();
             if (warned.add(source) && warned.size() <= 50) plugin.getLogger().warning("Invalid text template: " + ex.getMessage());
             return Component.text(source);
         }

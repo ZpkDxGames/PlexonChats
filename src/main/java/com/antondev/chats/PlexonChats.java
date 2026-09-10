@@ -9,6 +9,7 @@ import com.antondev.chats.chat.ChatManager;
 import com.antondev.chats.chat.ConnectionMessageListener;
 import com.antondev.chats.command.*;
 import com.antondev.chats.config.ConfigManager;
+import com.antondev.chats.diagnostics.ChatDiagnostics;
 import com.antondev.chats.gui.ChatGUI;
 import com.antondev.chats.gui.GUIListener;
 import com.antondev.chats.integration.DiscordBridge;
@@ -21,6 +22,7 @@ import com.antondev.chats.placeholder.PlaceholderHandler;
 import com.antondev.chats.player.PlayerInfoService;
 import com.antondev.chats.player.PreferenceStore;
 import com.antondev.chats.text.TextService;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -37,6 +39,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
 public class PlexonChats extends JavaPlugin implements Listener {
+    private final ChatDiagnostics diagnostics = new ChatDiagnostics();
     private ConfigManager configManager;
     private PreferenceStore preferences;
     private ChatManager chatManager;
@@ -60,7 +63,6 @@ public class PlexonChats extends JavaPlugin implements Listener {
         try {
             coreBridge = CoreBridgeFactory.resolve(this);
             coreBridge.registerStarting();
-
             configManager = new ConfigManager(this);
             preferences = new PreferenceStore(this);
             placeholderApiService = new PlaceholderApiService(this);
@@ -92,14 +94,13 @@ public class PlexonChats extends JavaPlugin implements Listener {
             cleanupTask = getServer().getScheduler().runTaskTimer(this, itemPreviewManager::cleanupExpired, 1200, 1200);
             api = new PlexonChatsApiImpl(this);
             getServer().getServicesManager().register(PlexonChatsAPI.class, api, this, ServicePriority.Normal);
-
+            diagnostics.recordReload(true, "startup revision " + configManager.revision());
             publishCoreHealth();
             getLogger().info("PlexonChats " + getPluginMeta().getVersion()
                     + " enabled. Mode: " + coreBridge.mode() + ", DiscordSRV: " + discordBridge.status());
         } catch (Exception | LinkageError exception) {
-            if (coreBridge != null) {
-                coreBridge.markFailed("Chat startup failed: " + exception.getClass().getSimpleName());
-            }
+            diagnostics.recordReload(false, "startup " + exception.getClass().getSimpleName());
+            if (coreBridge != null) coreBridge.markFailed("Chat startup failed: " + exception.getClass().getSimpleName());
             getLogger().log(Level.SEVERE, "PlexonChats could not start safely; disabling without partial operation", exception);
             shutdown();
             Bukkit.getPluginManager().disablePlugin(this);
@@ -112,9 +113,34 @@ public class PlexonChats extends JavaPlugin implements Listener {
         if (executor instanceof TabCompleter completer) command.setTabCompleter(completer);
     }
 
-    /** Apply only a validated configuration. Recreate each timer/hook exactly once. Main thread only. */
+    /** Apply a validated configuration as one runtime generation; rollback to the previous snapshot on refresh failure. */
     public boolean reloadPlugin() {
-        if (!configManager.loadConfig()) return false;
+        ConfigManager.Snapshot previous = configManager.snapshot();
+        if (!configManager.loadConfig()) {
+            diagnostics.recordReload(false, "configuration rejected; revision " + previous.revision());
+            return false;
+        }
+        try {
+            refreshRuntimeAfterConfig();
+            diagnostics.recordReload(true, "revision " + configManager.revision());
+            return true;
+        } catch (Exception | LinkageError failure) {
+            diagnostics.recordReload(false, failure.getClass().getSimpleName() + "; restored revision " + previous.revision());
+            getLogger().log(Level.SEVERE, "Reload failed after validation; restoring the previous runtime generation", failure);
+            configManager.restore(previous);
+            try {
+                refreshRuntimeAfterConfig();
+            } catch (Exception | LinkageError rollbackFailure) {
+                diagnostics.recordIntegrationFailure("reload-rollback", rollbackFailure);
+                if (coreBridge != null) coreBridge.markFailed("Reload rollback failed: " + rollbackFailure.getClass().getSimpleName());
+                getLogger().log(Level.SEVERE, "Known-good runtime could not be restored; disabling PlexonChats safely", rollbackFailure);
+                Bukkit.getPluginManager().disablePlugin(this);
+            }
+            return false;
+        }
+    }
+
+    private void refreshRuntimeAfterConfig() {
         chatGUI.closeAll();
         placeholderApiService.refreshHooks();
         playerInfoService.refreshHooks();
@@ -127,7 +153,6 @@ public class PlexonChats extends JavaPlugin implements Listener {
         discordBridge = DiscordBridge.create(this);
         itemPreviewManager.cleanupExpired();
         publishCoreHealth();
-        return true;
     }
 
     @EventHandler
@@ -138,11 +163,9 @@ public class PlexonChats extends JavaPlugin implements Listener {
             discordBridge = DiscordBridge.create(this);
         } else if (name.equals("PlaceholderAPI")) {
             placeholderApiService.refreshHooks();
-        } else if (name.equals("Vault")) {
+        } else if (name.equals("Vault") || name.equals("LuckPerms") || name.equals("PlexonRanks")) {
             playerInfoService.refreshHooks();
-        } else {
-            return;
-        }
+        } else return;
         publishCoreHealth();
     }
 
@@ -154,11 +177,9 @@ public class PlexonChats extends JavaPlugin implements Listener {
             discordBridge = DiscordBridge.inactive("NOT_INSTALLED");
         } else if (name.equals("PlaceholderAPI")) {
             placeholderApiService.refreshHooks();
-        } else if (name.equals("Vault")) {
+        } else if (name.equals("Vault") || name.equals("LuckPerms") || name.equals("PlexonRanks")) {
             playerInfoService.refreshHooks();
-        } else {
-            return;
-        }
+        } else return;
         publishCoreHealth();
     }
 
@@ -169,48 +190,32 @@ public class PlexonChats extends JavaPlugin implements Listener {
             String discord = discordBridge.status();
             if (!discord.equals("ACTIVE")) degraded.add("DiscordSRV " + discord);
         }
-
         String readyDetail = "Chat routing, preferences, scheduler, GUI, API and optional bridge operational";
         if (degraded.isEmpty()) coreBridge.markReady(readyDetail);
         else coreBridge.markDegraded(readyDetail + "; " + String.join(", ", degraded));
     }
 
-    @Override
-    public void onDisable() {
+    @Override public void onDisable() {
         shutdown();
         getLogger().info("PlexonChats disabled.");
     }
 
     private void shutdown() {
-        if (cleanupTask != null) {
-            cleanupTask.cancel();
-            cleanupTask = null;
-        }
-        if (autoMessages != null) {
-            autoMessages.close();
-            autoMessages = null;
-        }
-        if (discordBridge != null) {
-            discordBridge.close();
-            discordBridge = DiscordBridge.inactive("DISABLED");
-        }
+        if (cleanupTask != null) { cleanupTask.cancel(); cleanupTask = null; }
+        if (autoMessages != null) { autoMessages.close(); autoMessages = null; }
+        if (discordBridge != null) { discordBridge.close(); discordBridge = DiscordBridge.inactive("DISABLED"); }
         if (chatGUI != null) chatGUI.closeAll();
-        if (preferences != null) {
-            preferences.close();
-            preferences = null;
-        }
+        if (preferences != null) { preferences.close(); preferences = null; }
         if (chatManager != null) chatManager.clearAll();
         if (privateMessageManager != null) privateMessageManager.clear();
         if (itemPreviewManager != null) itemPreviewManager.clear();
         getServer().getServicesManager().unregisterAll(this);
         api = null;
-        if (coreBridge != null) {
-            coreBridge.unregister();
-            coreBridge = null;
-        }
+        if (coreBridge != null) { coreBridge.unregister(); coreBridge = null; }
     }
 
     public boolean cleanupTaskActive() { return cleanupTask != null && !cleanupTask.isCancelled(); }
+    public ChatDiagnostics getDiagnostics() { return diagnostics; }
     public ConfigManager getConfigManager() { return configManager; }
     public PreferenceStore getPreferences() { return preferences; }
     public ChatManager getChatManager() { return chatManager; }

@@ -6,6 +6,7 @@ import com.antondev.chats.api.PlexonChatEvent;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -23,7 +24,7 @@ public final class ChatManager {
         if (selected == null) selected = plugin.getConfigManager().getDefaultChannel();
         if (available(player, selected)) return selected;
         for (ChatChannel channel : ChatChannel.values()) if (available(player, channel)) return channel;
-        return selected; // Sending will reject it if no channel is available.
+        return selected;
     }
 
     private boolean available(Player player, ChatChannel channel) {
@@ -60,7 +61,6 @@ public final class ChatManager {
         String global = plugin.getConfigManager().getGlobalShortcutPrefix();
         String local = plugin.getConfigManager().getLocalShortcutPrefix();
         ChatChannel channel = getPlayerChannel(sender);
-        // Prefer the longest configured prefix when prefixes overlap.
         if (!global.isEmpty() && raw.startsWith(global) && (local.isEmpty() || !raw.startsWith(local) || global.length() >= local.length())) {
             channel = ChatChannel.GLOBAL;
             raw = raw.substring(global.length());
@@ -107,17 +107,25 @@ public final class ChatManager {
         var processed = plugin.getPlaceholderHandler().processMessage(sender, raw);
         PlexonChatEvent event = new PlexonChatEvent(sender, channel, raw, processed.component(), recipients);
         Bukkit.getPluginManager().callEvent(event);
-        if (event.isCancelled()) return;
+        if (event.isCancelled()) {
+            plugin.getDiagnostics().customEventCancelled();
+            return;
+        }
         Component formatted = plugin.getChatComponentFactory().buildPublicMessage(sender, channel, event.getMessage());
-        event.getRecipients().stream().filter(Player::isOnline).forEach(player -> player.sendMessage(formatted));
-        if (channel == ChatChannel.LOCAL && event.getRecipients().contains(sender)
-                && event.getRecipients().stream().noneMatch(player -> !player.equals(sender))) {
+        Set<Player> onlineRecipients = new LinkedHashSet<>();
+        for (Player player : event.getRecipients()) {
+            if (!player.isOnline()) continue;
+            player.sendMessage(formatted);
+            onlineRecipients.add(player);
+        }
+        plugin.getDiagnostics().publicDelivered(onlineRecipients.size());
+        if (channel == ChatChannel.LOCAL && onlineRecipients.contains(sender)
+                && onlineRecipients.stream().noneMatch(player -> !player.equals(sender))) {
             sender.sendMessage(plugin.getConfigManager().getNoRecipients());
         }
         if (plugin.getConfigManager().bool("chat.log-to-console", true)) Bukkit.getConsoleSender().sendMessage(formatted);
-        List<Player> mentions = processed.mentionedPlayers().stream().filter(event.getRecipients()::contains).toList();
+        List<Player> mentions = processed.mentionedPlayers().stream().filter(onlineRecipients::contains).toList();
         plugin.getPlaceholderHandler().notifyMentionedPlayers(mentions, sender);
-        // This is the only player-chat -> Discord entry point. PM/local traffic never enters it.
         if (channel == ChatChannel.GLOBAL && event.isDiscordAllowed()) plugin.getDiscordBridge().sendChat(event);
     }
 

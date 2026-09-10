@@ -2,9 +2,13 @@ package com.antondev.chats.config;
 
 import com.antondev.chats.ChatChannel;
 import com.antondev.chats.PlexonChats;
+import com.antondev.chats.gui.GuiAction;
+import com.antondev.chats.gui.GuiButton;
 import com.antondev.chats.text.ComponentTemplate;
+import com.antondev.chats.text.TextService;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Registry;
 import org.bukkit.Sound;
@@ -17,14 +21,18 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /** Immutable-after-publication snapshot: invalid reloads never replace the live configuration. */
 public final class ConfigManager {
+    public record Snapshot(String yaml, long revision) { }
+
     private final PlexonChats plugin;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
     private final ComponentTemplate templates = new ComponentTemplate(miniMessage);
@@ -65,6 +73,18 @@ public final class ConfigManager {
         }
     }
 
+    public Snapshot snapshot() { return new Snapshot(config.saveToString(), revision); }
+    public void restore(Snapshot snapshot) {
+        try {
+            YamlConfiguration restored = new YamlConfiguration();
+            restored.loadFromString(snapshot.yaml());
+            config = restored;
+            revision = snapshot.revision();
+        } catch (InvalidConfigurationException ex) {
+            throw new IllegalStateException("Known-good configuration snapshot became unreadable", ex);
+        }
+    }
+
     public boolean saveSetting(String path, Object value) {
         Path file = plugin.getDataFolder().toPath().resolve("config.yml");
         try {
@@ -101,23 +121,134 @@ public final class ConfigManager {
         for (String channel : List.of("local", "global")) {
             String format = yaml.getString("channels." + channel + ".format", "{player}: {message}");
             if (!format.contains("{message}")) throw new IllegalArgumentException("channels." + channel + ".format must include {message}.");
+            validateMiniMessage("channels." + channel + ".format", format);
+            validateMiniMessage("channels." + channel + ".badge", yaml.getString("channels." + channel + ".badge", ""));
         }
         for (String kind : List.of("join", "quit")) {
             String mode = yaml.getString("connection-messages." + kind + ".mode", "DEFAULT").toUpperCase(Locale.ROOT);
             if (!List.of("DEFAULT", "CUSTOM", "HIDDEN").contains(mode)) {
                 throw new IllegalArgumentException("connection-messages." + kind + ".mode must be DEFAULT, CUSTOM or HIDDEN.");
             }
+            validateMiniMessage("connection-messages." + kind + ".format", yaml.getString("connection-messages." + kind + ".format", ""));
+        }
+        validateMiniMessage("chat-components.player.name-format", yaml.getString("chat-components.player.name-format", ""));
+        validateMiniMessage("chat-components.separator.format", yaml.getString("chat-components.separator.format", ""));
+        validateMiniMessage("mentions.format", yaml.getString("mentions.format", ""));
+        validateMiniMessage("mentions.actionbar-message", yaml.getString("mentions.actionbar-message", ""));
+        validateClick(yaml, "chat-components.player.click");
+        validateClick(yaml, "chat-components.channel.click");
+        validateClick(yaml, "chat-components.separator.click");
+        validateGui(yaml, "gui");
+        validateGui(yaml, "gui.admin");
+        validateGui(yaml, "gui.creator");
+        validateAutoMessages(yaml);
+        validateSound(yaml, "mentions.sound");
+        validateSound(yaml, "gui.click-sound");
+    }
+
+    private static void validateMiniMessage(String path, String value) {
+        if (value == null || value.isEmpty()) return;
+        try { MiniMessage.miniMessage().deserialize(value); }
+        catch (IllegalArgumentException ex) { throw new IllegalArgumentException(path + " contains invalid MiniMessage: " + ex.getMessage()); }
+    }
+
+    private static void validateClick(YamlConfiguration yaml, String path) {
+        if (!yaml.contains(path)) return;
+        String action = yaml.getString(path + ".action", "NONE").toUpperCase(Locale.ROOT);
+        Set<String> allowed = Set.of("NONE", "SUGGEST_COMMAND", "RUN_COMMAND", "COPY_TO_CLIPBOARD", "OPEN_URL");
+        if (!allowed.contains(action)) throw new IllegalArgumentException(path + ".action is unknown: " + action);
+        String value = yaml.getString(path + ".value", "");
+        if (action.equals("RUN_COMMAND") && !value.isBlank() && !value.startsWith("/")) {
+            throw new IllegalArgumentException(path + ".value must start with / for RUN_COMMAND.");
+        }
+        if (action.equals("OPEN_URL") && !value.isBlank() && !TextService.isWebUrl(value)) {
+            throw new IllegalArgumentException(path + ".value must be an http(s) URL.");
+        }
+    }
+
+    private static void validateGui(YamlConfiguration yaml, String path) {
+        ConfigurationSection root = yaml.getConfigurationSection(path);
+        if (root == null) return;
+        int rows = root.getInt("rows", 3);
+        if (rows < 1 || rows > 6) throw new IllegalArgumentException(path + ".rows must be between 1 and 6.");
+        ConfigurationSection items = root.getConfigurationSection("items");
+        if (items == null) return;
+        Set<Integer> slots = new HashSet<>();
+        for (String id : items.getKeys(false)) {
+            ConfigurationSection entry = items.getConfigurationSection(id);
+            if (entry == null) throw new IllegalArgumentException(path + ".items." + id + " must be a section.");
+            if (!entry.getBoolean("enabled", true)) continue;
+            int slot = entry.getInt("slot", -1);
+            if (slot < 0 || slot >= rows * 9) throw new IllegalArgumentException(path + ".items." + id + ".slot is out of range.");
+            if (!slots.add(slot)) throw new IllegalArgumentException(path + " contains duplicate GUI slot " + slot + ".");
+            if (GuiButton.material(entry.getString("material", "PAPER")) == null) {
+                throw new IllegalArgumentException(path + ".items." + id + ".material is invalid.");
+            }
+            for (String materialPath : List.of("active-material", "disabled-material")) {
+                if (entry.contains(materialPath) && GuiButton.material(entry.getString(materialPath, "")) == null) {
+                    throw new IllegalArgumentException(path + ".items." + id + "." + materialPath + " is invalid.");
+                }
+            }
+            try { GuiAction.valueOf(entry.getString("action", "NONE").toUpperCase(Locale.ROOT)); }
+            catch (IllegalArgumentException ex) { throw new IllegalArgumentException(path + ".items." + id + ".action is invalid."); }
+            validateMiniMessage(path + ".items." + id + ".name", entry.getString("name", id));
+            for (String line : entry.getStringList("lore")) validateMiniMessage(path + ".items." + id + ".lore", line);
+        }
+    }
+
+    private static void validateAutoMessages(YamlConfiguration yaml) {
+        ConfigurationSection groups = yaml.getConfigurationSection("auto-messages.groups");
+        if (groups == null) return;
+        for (String id : groups.getKeys(false)) {
+            ConfigurationSection group = groups.getConfigurationSection(id);
+            if (group == null) throw new IllegalArgumentException("auto-messages.groups." + id + " must be a section.");
+            if (!group.getBoolean("enabled", true)) continue;
+            range(group.getLong("interval-seconds", 300), 10, 604800, id + ".interval-seconds");
+            range(group.getLong("initial-delay-seconds", 60), 1, 604800, id + ".initial-delay-seconds");
+            range(group.getInt("min-online", 1), 0, 10000, id + ".min-online");
+            String order = group.getString("order", "SEQUENTIAL").toUpperCase(Locale.ROOT);
+            if (!Set.of("SEQUENTIAL", "SHUFFLE").contains(order)) throw new IllegalArgumentException("Unknown auto-message order in " + id + ".");
+            List<Map<?, ?>> messages = group.getMapList("messages");
+            for (Map<?, ?> message : messages) {
+                if (Boolean.FALSE.equals(message.get("enabled"))) continue;
+                String delivery = String.valueOf(message.getOrDefault("delivery", "CHAT")).toUpperCase(Locale.ROOT);
+                if (!Set.of("CHAT", "TITLE", "ACTION_BAR").contains(delivery)) throw new IllegalArgumentException("Unknown auto-message delivery in " + id + ".");
+                Object rawLines = message.get("lines");
+                List<?> lines = rawLines instanceof List<?> list ? list : rawLines instanceof String line ? List.of(line) : List.of();
+                if (lines.isEmpty() || lines.stream().map(String::valueOf).allMatch(String::isBlank)) throw new IllegalArgumentException("Empty auto-message in " + id + ".");
+                for (Object line : lines) validateMiniMessage("auto-messages.groups." + id + ".messages", String.valueOf(line));
+            }
+            validateSoundValue("auto-messages.groups." + id + ".sound", group.getString("sound", "NONE"));
+        }
+    }
+
+    private static void range(long value, long min, long max, String path) {
+        if (value < min || value > max) throw new IllegalArgumentException("auto-messages.groups." + path + " must be between " + min + " and " + max + ".");
+    }
+
+    private static void validateSound(YamlConfiguration yaml, String path) {
+        if (yaml.contains(path)) validateSoundValue(path, yaml.getString(path, "NONE"));
+    }
+    private static void validateSoundValue(String path, String value) {
+        if (value == null || value.isBlank() || value.equalsIgnoreCase("NONE")) return;
+        try {
+            Sound resolved = null;
+            if (!value.contains(":") && value.equals(value.toUpperCase(Locale.ROOT))) {
+                try { resolved = (Sound) Sound.class.getField(value).get(null); }
+                catch (ReflectiveOperationException ignored) { }
+            }
+            NamespacedKey key = NamespacedKey.fromString(value.toLowerCase(Locale.ROOT));
+            if (resolved == null && key != null && Bukkit.getServer() != null) resolved = Registry.SOUNDS.get(key);
+            if (key == null || (Bukkit.getServer() != null && resolved == null)) throw new IllegalArgumentException("unknown sound");
+        } catch (RuntimeException ex) {
+            throw new IllegalArgumentException(path + " is invalid: " + value);
         }
     }
 
     public String string(String path, String fallback) { return config.getString(path, defaults.getString(path, fallback)); }
     public boolean bool(String path, boolean fallback) { return config.getBoolean(path, defaults.getBoolean(path, fallback)); }
-    public int integer(String path, int fallback, int min, int max) {
-        return Math.clamp(config.getInt(path, defaults.getInt(path, fallback)), min, max);
-    }
-    public long number(String path, long fallback, long min, long max) {
-        return Math.clamp(config.getLong(path, defaults.getLong(path, fallback)), min, max);
-    }
+    public int integer(String path, int fallback, int min, int max) { return Math.clamp(config.getInt(path, defaults.getInt(path, fallback)), min, max); }
+    public long number(String path, long fallback, long min, long max) { return Math.clamp(config.getLong(path, defaults.getLong(path, fallback)), min, max); }
     public double decimal(String path, double fallback, double min, double max) {
         double value = config.getDouble(path, defaults.getDouble(path, fallback));
         return Double.isFinite(value) ? Math.clamp(value, min, max) : fallback;
@@ -132,7 +263,7 @@ public final class ConfigManager {
 
     public Component formatMessage(String text) {
         try { return miniMessage.deserialize(text); }
-        catch (IllegalArgumentException ex) { return Component.text(text); }
+        catch (IllegalArgumentException ex) { plugin.getDiagnostics().formatFailure(); return Component.text(text); }
     }
     public Component getPrefixed(String text) { return formatMessage(string("messages.prefix", "") + text); }
     public Component message(String key) { return message(key, Map.of()); }
@@ -141,7 +272,7 @@ public final class ConfigManager {
         values.forEach((k, v) -> components.put(k, Component.text(v)));
         String source = string("messages.prefix", "") + string("messages." + key, key);
         try { return templates.render(source, components); }
-        catch (IllegalArgumentException ex) { return Component.text(source); }
+        catch (IllegalArgumentException ex) { plugin.getDiagnostics().formatFailure(); return Component.text(source); }
     }
     public Component getChannelSwitched(ChatChannel channel) { return message("channel-switched", Map.of("channel", channel.getDisplayName())); }
     public Component getChannelAlready(ChatChannel channel) { return message("channel-already", Map.of("channel", channel.getDisplayName())); }
@@ -152,9 +283,7 @@ public final class ConfigManager {
     public Component getPlayerNotFound(String value) { return message("player-not-found", Map.of("player", value)); }
     public Component getNoReplyTarget() { return message("no-reply-target"); }
     public Component getNoRecipients() { return formatMessage(string("channels.local.no-recipients-message", "")); }
-    public Component getMentionActionbar(String value) {
-        return templates.render(string("mentions.actionbar-message", "{player} mentioned you"), Map.of("player", Component.text(value)));
-    }
+    public Component getMentionActionbar(String value) { return templates.render(string("mentions.actionbar-message", "{player} mentioned you"), Map.of("player", Component.text(value))); }
 
     public ChatChannel getDefaultChannel() {
         ChatChannel channel = ChatChannel.fromName(string("default-channel", "LOCAL"));

@@ -6,7 +6,7 @@ import java.util.Set;
 
 /** Adds new options without overwriting existing values or restoring deleted custom entries. */
 public final class ConfigUpgrader {
-    public static final int VERSION = 3;
+    public static final int VERSION = 4;
     private static final Set<String> USER_COLLECTIONS = Set.of(
             "gui.items", "gui.admin.items", "gui.creator.items", "auto-messages.groups");
     private ConfigUpgrader() {}
@@ -23,7 +23,10 @@ public final class ConfigUpgrader {
             String path = parent.isEmpty() ? key : parent + "." + key;
             ConfigurationSection child = defaults.getConfigurationSection(key);
             if (child != null) {
-                if (current.contains(path) && USER_COLLECTIONS.contains(path)) continue;
+                if (USER_COLLECTIONS.contains(path)) {
+                    if (!current.contains(path)) current.createSection(path);
+                    continue;
+                }
                 if (current.contains(path) && !current.isConfigurationSection(path)) continue;
                 if (!current.contains(path)) current.createSection(path);
                 merge(current, child, path);
