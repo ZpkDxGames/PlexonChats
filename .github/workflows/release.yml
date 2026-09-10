@@ -89,8 +89,11 @@ jobs:
           done
           unzip -p "${jar_path}" plugin.yml | grep -F "version: '3.2.0-rc.1'"
           javap -verbose -classpath "${jar_path}" com.antondev.chats.PlexonChats | grep -F 'major version: 69'
-          sha256sum "${jar_path}" > target/SHA256SUMS.txt
-          (cd target && sha256sum --check SHA256SUMS.txt)
+          (
+            cd target
+            sha256sum PlexonChats-3.2.0-rc.1.jar > SHA256SUMS.txt
+            sha256sum --check SHA256SUMS.txt
+          )
           cat > target/PROVENANCE.txt <<EOF
           repository=ZpkDxGames/PlexonChats
           commit=${GITHUB_SHA}
