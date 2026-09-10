@@ -211,7 +211,8 @@ public final class ConfigManager {
             List<Map<?, ?>> messages = group.getMapList("messages");
             for (Map<?, ?> message : messages) {
                 if (Boolean.FALSE.equals(message.get("enabled"))) continue;
-                String delivery = String.valueOf(message.getOrDefault("delivery", "CHAT")).toUpperCase(Locale.ROOT);
+                Object deliveryValue = message.containsKey("delivery") ? message.get("delivery") : "CHAT";
+                String delivery = String.valueOf(deliveryValue).toUpperCase(Locale.ROOT);
                 if (!Set.of("CHAT", "TITLE", "ACTION_BAR").contains(delivery)) throw new IllegalArgumentException("Unknown auto-message delivery in " + id + ".");
                 Object rawLines = message.get("lines");
                 List<?> lines = rawLines instanceof List<?> list ? list : rawLines instanceof String line ? List.of(line) : List.of();
