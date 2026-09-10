@@ -1,10 +1,10 @@
 # ============================================================
-# PlexonChats 3.0 — Paper 1.21.11+ / Java 25+
+# PlexonChats 3.2 — Phase 2 / Paper 26.2 / Java 25
 # All admin-owned text supports MiniMessage. UTF-8, spaces only.
-# /chat reload applies edits; invalid YAML keeps the live config.
-# Existing 2.0 settings are retained, with a backup before migration.
+# /chat reload validates the complete candidate before activation.
+# Existing settings are retained, with a backup before schema migration.
 # ============================================================
-config-version: 3
+config-version: 4
 server-name: "Plexon"
 default-channel: LOCAL
 
@@ -91,8 +91,7 @@ private-messages:
   received-format: "<gray>[From] {sender}<dark_gray> » <white>{message}"
   # PMs are NEVER forwarded to Discord. Only the actual recipient is notified.
 
-# The 2.0 README listed connection-message customization; 3.0 supplies
-# the implementation. DEFAULT preserves the native/previous plugin message.
+# DEFAULT preserves the native/previous plugin message.
 connection-messages:
   # Do not reveal a player whose message was already suppressed by another plugin.
   respect-hidden: true
@@ -138,8 +137,8 @@ preferences:
   save-interval-seconds: 60
 
 # GUI slots are zero-based. rows supports 1–6 (9–54 slots).
-# Invalid materials/actions, duplicate slots and out-of-range items are skipped
-# with a console warning. Slots below are valid for three rows.
+# Candidate validation rejects invalid materials/actions, duplicate slots and
+# out-of-range items before activation; the runtime reader also fails safely.
 # Remove any button, or add custom ones. {} means no buttons.
 # Actions: LOCAL, GLOBAL, TOGGLE_MENTIONS, TOGGLE_TIPS, TOGGLE_PRIVATE_MESSAGES,
 # OPEN_ADMIN, OPEN_CREATOR, OPEN_MAIN, RELOAD, TOGGLE_AUTO_MESSAGES,
@@ -319,6 +318,7 @@ gui:
 
 # Each group has its own interval/rotation. A single lightweight timer services
 # all groups. Schedules restart from their initial delay after a reload/restart.
+# Routine Phase 2 defaults use CHAT/TITLE only; legacy ACTION_BAR remains readable
 auto-messages:
   enabled: true
   groups:
@@ -334,9 +334,9 @@ auto-messages:
       permission: ""
       worlds: []
       excluded-worlds: []
-      sound: NONE
-      sound-volume: 0.6
-      sound-pitch: 1.2
+      sound: BLOCK_NOTE_BLOCK_PLING
+      sound-volume: 1.0
+      sound-pitch: 1.1
       # Must ALSO enable integrations.discordsrv.forward-announcements.
       # Forwarding is blocked for groups with world/permission/opt-out filters.
       forward-to-discord: false
@@ -353,7 +353,7 @@ auto-messages:
           lines:
             - "<gold>✦</gold> <gray>Start a message with <white>!</white> to talk in global chat."
         - id: item-showcase
-          delivery: ACTION_BAR
+          delivery: CHAT
           lines:
             - "<gold>✦</gold> <gray>Share your held item by typing <yellow>[item]</yellow> in chat."
     announcements:
