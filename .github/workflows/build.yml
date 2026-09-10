@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 'release/**'
+      - 'phase2/**'
     tags-ignore:
       - 'v*'
   pull_request:
@@ -25,15 +26,18 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Verify 3.0 release ancestry
+
+      - name: Verify Phase 2 ancestry
         shell: bash
-        run: git merge-base --is-ancestor 4bff64e1691e79f0199baace428ec4349be9400b HEAD
+        run: git merge-base --is-ancestor c7191c21654b11ea55c03e5fecae629e20898319 HEAD
+
       - name: Set up Java 25
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '25'
           cache: maven
+
       - name: Provision PlexonCore 2.0.4 API
         shell: bash
         run: |
@@ -42,49 +46,101 @@ jobs:
           curl --fail --location --silent --show-error --output "${core_jar}" "https://github.com/ZpkDxGames/PlexonCore/releases/download/v2.0.4/PlexonCore-2.0.4.jar"
           echo "61d625a717da9f46ee9231e1970d84b4c317ae12cf4090cdf7c9d39b6a1a9baf  ${core_jar}" | sha256sum --check
           mvn -B -ntp org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file -Dfile="${core_jar}" -DgroupId=com.zpkdxgames -DartifactId=PlexonCore -Dversion=2.0.4 -Dpackaging=jar -DgeneratePom=true
+
       - name: Test and package
         shell: bash
         run: |
           set -o pipefail
           mvn -B -ntp clean verify 2>&1 | tee maven-verify.log
+
+      - name: Build exact test summary
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+          reports = sorted(Path("target/surefire-reports").glob("TEST-*.xml"))
+          if not reports:
+              raise SystemExit("No Surefire XML reports found")
+          for report in reports:
+              root = ET.parse(report).getroot()
+              for key in totals:
+                  totals[key] += int(root.attrib.get(key, 0))
+          executed = totals["tests"]
+          text = (
+              f"executed={executed}\n"
+              f"failures={totals['failures']}\n"
+              f"errors={totals['errors']}\n"
+              f"skipped={totals['skipped']}\n"
+          )
+          Path("target/TEST_SUMMARY.txt").write_text(text, encoding="utf-8")
+          print(text, end="")
+          if totals["failures"] or totals["errors"] or totals["skipped"]:
+              raise SystemExit("Release contract requires zero failures, errors and skipped tests")
+          PY
+
+      - name: Verify distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          jar_path='target/PlexonChats-3.2.0-rc.1.jar'
+          test -s "${jar_path}"
+          jar tf "${jar_path}" > target/jar-contents.txt
+          for resource in plugin.yml config.yml com/antondev/chats/PlexonChats.class com/antondev/chats/api/PlexonChatEvent.class com/antondev/chats/api/PlexonChatsAPI.class com/antondev/chats/diagnostics/ChatDiagnostics.class; do
+            grep -qx "${resource}" target/jar-contents.txt
+          done
+          for prefix in \
+            'com/zpkdxgames/plexoncore/' \
+            'github/scarsz/discordsrv/' \
+            'io/papermc/paper/' \
+            'org/bukkit/' \
+            'net/kyori/adventure/' \
+            'me/clip/placeholderapi/' \
+            'net/luckperms/'; do
+            if grep -q "^${prefix}" target/jar-contents.txt; then
+              echo "Provided/runtime API classes must not be bundled: ${prefix}" >&2
+              exit 1
+            fi
+          done
+          unzip -p "${jar_path}" plugin.yml | grep -F "version: '3.2.0-rc.1'"
+          javap -verbose -classpath "${jar_path}" com.antondev.chats.PlexonChats | grep -F 'major version: 69'
+          sha256sum "${jar_path}" > target/SHA256SUMS.txt
+          (cd target && sha256sum --check SHA256SUMS.txt)
+          cat > target/PROVENANCE.txt <<EOF
+          repository=ZpkDxGames/PlexonChats
+          commit=${GITHUB_SHA}
+          ref=${GITHUB_REF}
+          candidate=3.2.0-rc.1
+          rollback_tag=v3.1.1
+          rollback_sha=c7191c21654b11ea55c03e5fecae629e20898319
+          java=25
+          class_major=69
+          paper=26.2.build.121-stable
+          plexoncore=2.0.4
+          runtime_certification=NOT_EXECUTED
+          EOF
+
+      - name: Check whitespace
+        run: git diff --check c7191c21654b11ea55c03e5fecae629e20898319...HEAD
+
       - name: Upload Maven verification log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Maven-verify-${{ github.sha }}
           path: maven-verify.log
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7
-      - name: Verify distribution
-        shell: bash
-        run: |
-          set -euo pipefail
-          mapfile -t jars < <(find target -maxdepth 1 -type f -name 'PlexonChats-*.jar' -print)
-          test "${#jars[@]}" -eq 1
-          jar_path=${jars[0]}
-          test -s "${jar_path}"
-          jar tf "${jar_path}" > target/jar-contents.txt
-          grep -qx 'plugin.yml' target/jar-contents.txt
-          grep -qx 'config.yml' target/jar-contents.txt
-          grep -qx 'com/antondev/chats/PlexonChats.class' target/jar-contents.txt
-          grep -qx 'com/antondev/chats/api/PlexonChatEvent.class' target/jar-contents.txt
-          grep -qx 'com/antondev/chats/api/PlexonChatsAPI.class' target/jar-contents.txt
-          for prefix in 'com/zpkdxgames/plexoncore/' 'github/scarsz/discordsrv/' 'io/papermc/paper/'; do
-            if grep -q "^${prefix}" target/jar-contents.txt; then echo "Provided runtime classes must not be bundled: ${prefix}" >&2; exit 1; fi
-          done
-          jar_name=$(basename "${jar_path}")
-          test "${jar_name}" = 'PlexonChats-3.1.1.jar'
-          cd target
-          sha256sum "${jar_name}" > SHA256SUMS.txt
-          sha256sum --check SHA256SUMS.txt
-      - name: Check whitespace
-        run: git diff --check 4bff64e1691e79f0199baace428ec4349be9400b...HEAD
-      - name: Upload verified plugin
+
+      - name: Upload verified candidate
         uses: actions/upload-artifact@v4
         with:
-          name: PlexonChats-3.1.1-${{ github.sha }}
+          name: PlexonChats-3.2.0-rc.1-${{ github.sha }}
           path: |
-            target/PlexonChats-3.1.1.jar
+            target/PlexonChats-3.2.0-rc.1.jar
             target/SHA256SUMS.txt
+            target/TEST_SUMMARY.txt
+            target/PROVENANCE.txt
           if-no-files-found: error
           retention-days: 30
