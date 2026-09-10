@@ -8,6 +8,8 @@ softdepend:
   - PlexonCore
   - Vault
   - PlaceholderAPI
+  - LuckPerms
+  - PlexonRanks
   - DiscordSRV
 
 commands:
@@ -94,7 +96,7 @@ permissions:
     description: Open the administration GUI and view integration status
     default: op
   plexonchats.automessages:
-    description: Preview, broadcast, pause and resume scheduled messages
+    description: Preview, test, broadcast, pause and manage scheduled messages
     default: op
   plexonchats.formatting:
     description: Use colors, decorations and gradients in messages

@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.antondev</groupId>
     <artifactId>PlexonChats</artifactId>
-    <version>3.1.1</version>
+    <version>3.2.0-rc.1</version>
     <packaging>jar</packaging>
     <name>PlexonChats</name>
     <description>A powerful, configurable chat management plugin for Paper servers</description>
@@ -15,7 +15,7 @@
         <paper.version>26.2.build.121-stable</paper.version>
         <plexoncore.version>2.0.4</plexoncore.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <project.build.outputTimestamp>2026-09-09T00:00:00Z</project.build.outputTimestamp>
+        <project.build.outputTimestamp>2026-09-10T00:00:00Z</project.build.outputTimestamp>
     </properties>
     <repositories>
         <repository><id>central</id><url>https://repo.maven.apache.org/maven2/</url></repository>

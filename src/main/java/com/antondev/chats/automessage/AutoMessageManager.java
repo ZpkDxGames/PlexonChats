@@ -8,6 +8,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
+
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -73,11 +74,11 @@ public final class AutoMessageManager implements AutoCloseable {
         for (RuntimeGroup group : groups.values()) {
             if (now < group.nextDue) continue;
             broadcast(group);
-            // A late tick never tries to replay all missed intervals.
             group.nextDue = now + group.definition.intervalSeconds() * SECOND;
         }
     }
 
+    /** Explicit live send. Like the established admin behavior, this resets that group's next scheduled due time. */
     public int sendNow(String id) {
         RuntimeGroup group = groups.get(id);
         if (group == null || !enabled()) return 0;
@@ -86,12 +87,17 @@ public final class AutoMessageManager implements AutoCloseable {
         return sent;
     }
 
+    /** Explicit test send. It may run while scheduling is disabled and never moves the scheduler/rotation deadline. */
+    public int testSend(String id) {
+        RuntimeGroup group = groups.get(id);
+        return group == null ? 0 : broadcast(group);
+    }
+
     public boolean preview(String id, CommandSender viewer) {
         RuntimeGroup group = groups.get(id);
         if (group == null) return false;
         MessageGroup.Entry entry = group.rotation.peek();
         if (entry == null) return false;
-        // Preview is chat-only, private, silent, and does not advance the rotation/timer.
         viewer.sendMessage(render(entry.lines(), viewer instanceof Player player ? player : null));
         return true;
     }

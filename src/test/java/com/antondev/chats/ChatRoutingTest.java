@@ -3,7 +3,7 @@ package com.antondev.chats;
 import com.antondev.chats.api.PlexonChatEvent;
 import com.antondev.chats.chat.ChatListener;
 import com.antondev.chats.command.MessageCommand;
-import io.papermc.paper.event.player.AsyncChatEvent;
+import io.papermc.paper.event.player.ChatEvent;
 import net.kyori.adventure.audience.Audience;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
@@ -11,8 +11,8 @@ import org.bukkit.Location;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.junit.jupiter.api.Test;
+
 import java.util.HashSet;
-import java.util.Map;
 import java.util.Set;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -50,28 +50,33 @@ class ChatRoutingTest extends PluginTestBase {
         assertNull(next(far));
         assertNull(next(anotherWorld));
     }
-    @Test void nativeChatUsesModeratedMessageAndExistingViewers() {
+    @Test void nativeChatUsesModeratedMessageAndExistingViewersWithoutSchedulerHandoff() {
         var sender = player("Sender");
         var allowed = player("Allowed");
         var excluded = player("Excluded");
-        var event = mock(AsyncChatEvent.class);
+        var event = mock(ChatEvent.class);
         when(event.getPlayer()).thenReturn(sender);
         when(event.message()).thenReturn(Component.text("moderated message"));
-        when(event.originalMessage()).thenReturn(Component.text("original message"));
         when(event.viewers()).thenReturn(new HashSet<Audience>(Set.of(sender, allowed)));
+        int tasksBefore = server.getScheduler().getPendingTasks().size();
+        long observedBefore = plugin.getDiagnostics().nativeObservedCount();
         new ChatListener(plugin).onPlayerChat(event);
         assertTrue(next(allowed).contains("moderated message"));
         assertNull(next(excluded));
+        assertEquals(tasksBefore, server.getScheduler().getPendingTasks().size());
+        assertEquals(observedBefore + 1, plugin.getDiagnostics().nativeObservedCount());
         verify(event).setCancelled(true);
     }
     @Test void moderationApiCanCancelShortcutMessages() {
         var sender = player("Sender");
         var recipient = player("Recipient");
+        long before = plugin.getDiagnostics().customEventCancellationsCount();
         server.getPluginManager().registerEvents(new Listener() {
             @EventHandler public void block(PlexonChatEvent event) { event.setCancelled(true); }
         }, plugin);
         plugin.getChatManager().sendPublic(sender, ChatChannel.GLOBAL, "blocked");
         assertNull(next(recipient));
+        assertEquals(before + 1, plugin.getDiagnostics().customEventCancellationsCount());
     }
     @Test void publicRecipientsPermissionIsEnforced() throws Exception {
         var sender = player("Sender");
@@ -131,7 +136,6 @@ class ChatRoutingTest extends PluginTestBase {
         var processed = plugin.getPlaceholderHandler().processMessage(sender, "<red>literal</red>");
         assertEquals("<red>literal</red>", plain(processed.component()));
     }
-
     @Test void disablingNicknameHoverDoesNotInheritAnotherPluginsHover() throws Exception {
         var sender = player("Sender");
         sender.displayName(Component.text("Nick").hoverEvent(Component.text("Unwanted hover")));
@@ -140,9 +144,7 @@ class ChatRoutingTest extends PluginTestBase {
         assertFalse(json.contains("Unwanted hover"));
         assertFalse(json.contains("hoverEvent"));
     }
-
     @Test void namesInsideItemComponentsDoNotTriggerMentionAlerts() throws Exception {
-        // Native item-hover serialization requires a real Paper server; test token processing here.
         config(yaml -> yaml.set("item-display.hover-item", false));
         var sender = player("Sender");
         player("Recipient");
@@ -154,10 +156,8 @@ class ChatRoutingTest extends PluginTestBase {
         var processed = plugin.getPlaceholderHandler().processMessage(sender, "Look: [item]");
         assertTrue(processed.mentionedPlayers().isEmpty());
         assertTrue(plain(processed.component()).contains("@Recipient [item]"));
-        String json = GsonComponentSerializer.gson().serialize(processed.component());
-        assertTrue(json.contains("/chatitem "));
+        assertTrue(GsonComponentSerializer.gson().serialize(processed.component()).contains("/chatitem "));
     }
-
     @Test void handItemTriggerHasPriorityOverMatchingUsername() throws Exception {
         config(yaml -> yaml.set("item-display.hover-item", false));
         var sender = player("Sender");

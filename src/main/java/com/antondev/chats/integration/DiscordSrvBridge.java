@@ -10,11 +10,13 @@ import github.scarsz.discordsrv.api.events.DiscordGuildMessagePostProcessEvent;
 import github.scarsz.discordsrv.api.events.GameChatMessagePreProcessEvent;
 import github.scarsz.discordsrv.util.DiscordUtil;
 import io.papermc.paper.event.player.AsyncChatEvent;
+import io.papermc.paper.event.player.ChatEvent;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
+
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -63,10 +65,8 @@ public final class DiscordSrvBridge implements DiscordBridge {
     @Subscribe(priority = ListenerPriority.HIGHEST)
     public void preventNativeDuplicate(GameChatMessagePreProcessEvent event) {
         if (closed) return;
-        // DiscordSRV may also listen to legacy/modern native chat. Neither path knows our
-        // local/global routing. Block both, even if RespectChatPlugins is false.
-        if (event.getTriggeringBukkitEvent() instanceof AsyncChatEvent
-                || event.getTriggeringBukkitEvent() instanceof AsyncPlayerChatEvent) event.setCancelled(true);
+        Object triggering = event.getTriggeringBukkitEvent();
+        if (triggering instanceof ChatEvent || triggering instanceof AsyncChatEvent || triggering instanceof AsyncPlayerChatEvent) event.setCancelled(true);
     }
 
     @Override public void sendChat(PlexonChatEvent event) {
@@ -74,12 +74,10 @@ public final class DiscordSrvBridge implements DiscordBridge {
         if (!status().equals("ACTIVE")) return;
         DiscordSRV discord = DiscordSRV.getPlugin();
         String text = safeMentions(PlainTextComponentSerializer.plainText().serialize(event.getMessage()));
-        // Follow DiscordSRV's own asynchronous processing path (webhooks, filters, linked accounts, permissions).
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             if (closed) return;
-            try {
-                discord.processChatMessage(event.getPlayer(), text, channel, false, event);
-            } catch (RuntimeException | LinkageError ex) { warn(ex); }
+            try { discord.processChatMessage(event.getPlayer(), text, channel, false, event); }
+            catch (RuntimeException | LinkageError ex) { warn(ex); }
         });
     }
 
@@ -89,8 +87,6 @@ public final class DiscordSrvBridge implements DiscordBridge {
         try {
             String destination = DiscordSRV.getPlugin().getDestinationGameChannelNameForTextChannel(event.getChannel());
             if (destination == null || !destination.equalsIgnoreCase(channel)) return;
-            // DiscordSRV has already applied its bot, role, length, regex and formatting rules.
-            // Own delivery of this mapped channel only; never re-inject a Bukkit chat event.
             event.setCancelled(true);
             if (!incoming) return;
             String json = github.scarsz.discordsrv.dependencies.kyori.adventure.text.serializer.gson.GsonComponentSerializer
@@ -106,8 +102,7 @@ public final class DiscordSrvBridge implements DiscordBridge {
                 if (closed || !plugin.getConfigManager().isGlobalEnabled()) return;
                 Component rendered = plugin.getText().render(incomingFormat, null, values);
                 Bukkit.getOnlinePlayers().stream().filter(p -> plugin.getChatManager().canReceive(p, ChatChannel.GLOBAL))
-                        .filter(p -> receivePermission.isBlank() || p.hasPermission(receivePermission))
-                        .forEach(p -> p.sendMessage(rendered));
+                        .filter(p -> receivePermission.isBlank() || p.hasPermission(receivePermission)).forEach(p -> p.sendMessage(rendered));
                 if (plugin.getConfigManager().bool("chat.log-to-console", true)) Bukkit.getConsoleSender().sendMessage(rendered);
             });
         } catch (RuntimeException | LinkageError ex) { warn(ex); }
@@ -130,6 +125,7 @@ public final class DiscordSrvBridge implements DiscordBridge {
 
     private String safeMentions(String value) { return suppressMentions ? value.replace("@", "@\u200B") : value; }
     private void warn(Throwable error) {
+        plugin.getDiagnostics().recordIntegrationFailure("DiscordSRV", error);
         if (warned.compareAndSet(false, true)) plugin.getLogger().warning("DiscordSRV forwarding failed. In-game chat is unaffected. "
                 + error.getClass().getSimpleName() + "; check DiscordSRV connection/configuration and use /chat reload.");
     }
