@@ -6,12 +6,14 @@ on:
       - main
       - 'release/**'
       - 'phase2/**'
+      - 'phase3/**'
     tags-ignore:
       - 'v*'
   pull_request:
     branches:
       - main
       - 'release/**'
+      - 'phase2/**'
   workflow_dispatch:
 
 permissions:
