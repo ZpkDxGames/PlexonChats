@@ -2,29 +2,25 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v3.2.0-rc.*'
+    branches:
+      - 'release/stable'
 
 permissions:
   contents: write
 
+concurrency:
+  group: plexonchats-stable-release
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
-      - name: Check out exact tag
+      - name: Check out exact stable candidate
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-
-      - name: Verify Phase 2 ancestry and tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          git merge-base --is-ancestor c7191c21654b11ea55c03e5fecae629e20898319 HEAD
-          project_version=$(mvn -q -DforceStdout help:evaluate -Dexpression=project.version)
-          test "${GITHUB_REF_NAME}" = "v${project_version}"
 
       - name: Set up Java 25
         uses: actions/setup-java@v5
@@ -42,7 +38,28 @@ jobs:
           echo "61d625a717da9f46ee9231e1970d84b4c317ae12cf4090cdf7c9d39b6a1a9baf  ${core_jar}" | sha256sum --check
           mvn -B -ntp org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file -Dfile="${core_jar}" -DgroupId=com.zpkdxgames -DartifactId=PlexonCore -Dversion=2.0.4 -Dpackaging=jar -DgeneratePom=true
 
-      - name: Test and package exact tag
+      - name: Read project version
+        id: project
+        shell: bash
+        run: echo "version=$(mvn -q -DforceStdout help:evaluate -Dexpression=project.version)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify stable boundary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION='${{ steps.project.outputs.version }}'
+          test "${GITHUB_REF_NAME}" = 'release/stable'
+          case "${VERSION}" in *-*) echo "Stable workflow refuses prerelease version: ${VERSION}" >&2; exit 1;; esac
+          git fetch origin main
+          test "${GITHUB_SHA}" = "$(git rev-parse origin/main)"
+          git merge-base --is-ancestor c7191c21654b11ea55c03e5fecae629e20898319 HEAD
+          test -s ".release/${VERSION}.md"
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then echo "v${VERSION} release already exists" >&2; exit 1; fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null 2>&1; then echo "v${VERSION} tag already exists" >&2; exit 1; fi
+
+      - name: Test and package exact stable source
         shell: bash
         run: |
           set -o pipefail
@@ -51,7 +68,7 @@ jobs:
       - name: Build exact test summary
         shell: bash
         run: |
-          python - <<'PY'
+          python3 - <<'PY'
           from pathlib import Path
           import xml.etree.ElementTree as ET
           totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
@@ -62,77 +79,77 @@ jobs:
               root = ET.parse(report).getroot()
               for key in totals:
                   totals[key] += int(root.attrib.get(key, 0))
-          text = (
-              f"executed={totals['tests']}\n"
-              f"failures={totals['failures']}\n"
-              f"errors={totals['errors']}\n"
-              f"skipped={totals['skipped']}\n"
-          )
+          text = "".join(f"{key}={value}\n" for key, value in (("executed", totals["tests"]), ("failures", totals["failures"]), ("errors", totals["errors"]), ("skipped", totals["skipped"])))
           Path("target/TEST_SUMMARY.txt").write_text(text, encoding="utf-8")
           print(text, end="")
-          if totals["failures"] or totals["errors"] or totals["skipped"]:
-              raise SystemExit("Release contract requires zero failures, errors and skipped tests")
+          if totals["tests"] == 0 or totals["failures"] or totals["errors"] or totals["skipped"]:
+              raise SystemExit("Release contract requires a non-empty all-green test suite")
           PY
 
       - name: Verify distribution and provenance
         shell: bash
         run: |
           set -euo pipefail
-          jar_path='target/PlexonChats-3.2.0-rc.1.jar'
-          test -s "${jar_path}"
-          jar tf "${jar_path}" > target/jar-contents.txt
+          VERSION='${{ steps.project.outputs.version }}'
+          JAR="target/PlexonChats-${VERSION}.jar"
+          test -s "${JAR}"
+          jar tf "${JAR}" > target/jar-contents.txt
           for resource in plugin.yml config.yml com/antondev/chats/PlexonChats.class com/antondev/chats/api/PlexonChatEvent.class com/antondev/chats/api/PlexonChatsAPI.class com/antondev/chats/diagnostics/ChatDiagnostics.class; do
             grep -qx "${resource}" target/jar-contents.txt
           done
           for prefix in 'com/zpkdxgames/plexoncore/' 'github/scarsz/discordsrv/' 'io/papermc/paper/' 'org/bukkit/' 'net/kyori/adventure/' 'me/clip/placeholderapi/' 'net/luckperms/'; do
             if grep -q "^${prefix}" target/jar-contents.txt; then echo "Provided/runtime API classes must not be bundled: ${prefix}" >&2; exit 1; fi
           done
-          unzip -p "${jar_path}" plugin.yml | grep -F "version: '3.2.0-rc.1'"
-          javap -verbose -classpath "${jar_path}" com.antondev.chats.PlexonChats | grep -F 'major version: 69'
+          unzip -p "${JAR}" plugin.yml | grep -F "version: '${VERSION}'"
+          unzip -p "${JAR}" plugin.yml | grep -F "api-version: '26.2'"
+          unzip -p "${JAR}" META-INF/MANIFEST.MF | tr -d '\r' | grep -F "Implementation-Version: ${VERSION}"
+          javap -verbose -classpath "${JAR}" com.antondev.chats.PlexonChats | grep -F 'major version: 69'
           (
             cd target
-            sha256sum PlexonChats-3.2.0-rc.1.jar > SHA256SUMS.txt
+            sha256sum "PlexonChats-${VERSION}.jar" > SHA256SUMS.txt
             sha256sum --check SHA256SUMS.txt
           )
           cat > target/PROVENANCE.txt <<EOF
           repository=ZpkDxGames/PlexonChats
           commit=${GITHUB_SHA}
-          tag=${GITHUB_REF_NAME}
-          candidate=3.2.0-rc.1
+          tag=v${VERSION}
+          version=${VERSION}
           rollback_tag=v3.1.1
           rollback_sha=c7191c21654b11ea55c03e5fecae629e20898319
           java=25
           class_major=69
           paper=26.2.build.121-stable
           plexoncore=2.0.4
-          runtime_certification=NOT_EXECUTED
+          source_closure=VERIFIED
+          runtime_deployment=FOLLOW_UP_NON_BLOCKING
           EOF
+          git diff --check
 
-      - name: Publish prerelease
+      - name: Publish GitHub stable release
         uses: softprops/action-gh-release@v2
         with:
-          name: PlexonChats 3.2.0-rc.1
-          body_path: .release/3.2.0-rc.1.md
-          prerelease: true
-          make_latest: false
+          tag_name: v${{ steps.project.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: PlexonChats ${{ steps.project.outputs.version }}
+          body_path: .release/${{ steps.project.outputs.version }}.md
+          prerelease: false
           files: |
-            target/PlexonChats-3.2.0-rc.1.jar
+            target/PlexonChats-${{ steps.project.outputs.version }}.jar
             target/SHA256SUMS.txt
             target/TEST_SUMMARY.txt
             target/PROVENANCE.txt
 
-      - name: Verify published prerelease metadata and assets
+      - name: Verify published stable release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          test "$(gh release view "${GITHUB_REF_NAME}" --json isPrerelease --jq '.isPrerelease')" = true
-          test "$(gh release view "${GITHUB_REF_NAME}" --json tagName --jq '.tagName')" = "${GITHUB_REF_NAME}"
-          assets=$(gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets[].name')
-          for asset in PlexonChats-3.2.0-rc.1.jar SHA256SUMS.txt TEST_SUMMARY.txt PROVENANCE.txt; do
-            grep -qx "${asset}" <<<"${assets}"
-          done
+          TAG="v${{ steps.project.outputs.version }}"
+          test "$(gh release view "${TAG}" --json isPrerelease --jq '.isPrerelease')" = false
+          test "$(gh release view "${TAG}" --json tagName --jq '.tagName')" = "${TAG}"
+          assets=$(gh release view "${TAG}" --json assets --jq '.assets[].name')
+          for asset in "PlexonChats-${{ steps.project.outputs.version }}.jar" SHA256SUMS.txt TEST_SUMMARY.txt PROVENANCE.txt; do grep -qx "${asset}" <<<"${assets}"; done
 
       - name: Upload release verification log
         if: always()

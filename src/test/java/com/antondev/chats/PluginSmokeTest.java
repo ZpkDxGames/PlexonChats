@@ -18,7 +18,7 @@ class PluginSmokeTest {
         assertTrue(plugin.isEnabled());
         assertEquals("DISABLED", plugin.getDiscordBridge().status());
         assertEquals(2, plugin.getAutoMessages().groupNames().size());
-        assertEquals("3.2.0-rc.1", plugin.getPluginMeta().getVersion());
+        assertEquals("3.2.0", plugin.getPluginMeta().getVersion());
         assertEquals("STANDALONE", plugin.getCoreBridge().mode());
         var registration = server.getServicesManager().getRegistration(PlexonChatsAPI.class);
         assertNotNull(registration);
