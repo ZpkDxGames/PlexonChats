@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.2.0 — stable repository closure
+
+- Promote the accepted `3.2.0-rc.1` / Phase 3 source lineage to stable `3.2.0` without introducing a parallel chat route or speculative Essentials parity.
+- Preserve synchronous cancellable `PlexonChatEvent`, public `PlexonChatsAPI`, first-party `/msg` + `/reply`, GLOBAL/LOCAL ownership, DiscordSRV no-echo behavior, and PlexonCore diagnostic integration.
+- Preserve the no-per-message-scheduler chat path, cached-only LuckPerms presentation, safe MiniMessage component boundaries, transactional runtime reload rollback, and one shared auto-message scheduler.
+- Keep `/ignore` deferred for lack of production dependency evidence and keep AFK ownership outside PlexonChats.
+- Generalize Build CI around the Maven project version instead of hard-coded RC artifact names.
+- Replace RC-tag publication with one exact-`main` stable release workflow.
+- Require a non-empty all-green test suite, Java 25/class major 69, Paper 26.2 metadata, required API/event/diagnostic classes, dependency isolation, checksums and provenance before stable publication.
+- Keep live PlexonCraft rollout as a separate non-blocking operational follow-up.
+
 ## 3.1.0
 
 Based on the verified production `3.0-Release` commit `4bff64e1691e79f0199baace428ec4349be9400b`. The stale historical `main` branch was not used as the migration baseline.

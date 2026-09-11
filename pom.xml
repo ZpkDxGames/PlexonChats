@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.antondev</groupId>
     <artifactId>PlexonChats</artifactId>
-    <version>3.2.0-rc.1</version>
+    <version>3.2.0</version>
     <packaging>jar</packaging>
     <name>PlexonChats</name>
     <description>A powerful, configurable chat management plugin for Paper servers</description>
