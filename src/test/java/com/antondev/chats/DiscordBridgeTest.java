@@ -1,7 +1,6 @@
 package com.antondev.chats;
 
 import com.antondev.chats.api.PlexonChatEvent;
-import com.antondev.chats.integration.DiscordBridge;
 import com.antondev.chats.integration.DiscordSrvBridge;
 import github.scarsz.discordsrv.DiscordSRV;
 import github.scarsz.discordsrv.api.events.DiscordGuildMessagePostProcessEvent;
@@ -11,6 +10,7 @@ import github.scarsz.discordsrv.dependencies.jda.api.entities.TextChannel;
 import github.scarsz.discordsrv.dependencies.jda.api.entities.User;
 import github.scarsz.configuralize.DynamicConfig;
 import io.papermc.paper.event.player.AsyncChatEvent;
+import io.papermc.paper.event.player.ChatEvent;
 import net.kyori.adventure.text.Component;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.junit.jupiter.api.AfterEach;
@@ -63,8 +63,8 @@ class DiscordBridgeTest extends PluginTestBase {
         assertEquals("WAITING_FOR_DISCORD", bridge.status());
     }
 
-    @Test void bothNativeChatRoutesAreCancelledToPreventDuplicateOrLocalLeaks() {
-        for (var nativeEvent : java.util.List.of(mock(AsyncChatEvent.class), mock(AsyncPlayerChatEvent.class))) {
+    @Test void allNativeChatRoutesAreCancelledToPreventDuplicateOrLocalLeaks() {
+        for (var nativeEvent : java.util.List.of(mock(ChatEvent.class), mock(AsyncChatEvent.class), mock(AsyncPlayerChatEvent.class))) {
             var event = mock(GameChatMessagePreProcessEvent.class);
             when(event.getTriggeringBukkitEvent()).thenReturn(nativeEvent);
             bridge.preventNativeDuplicate(event);
@@ -91,16 +91,20 @@ class DiscordBridgeTest extends PluginTestBase {
         global.setCancelled(false);
         global.setDiscordAllowed(false);
         bridge.sendChat(global);
-        server.getScheduler().waitAsyncTasksFinished();
+        drainWorker();
         verify(discord, never()).processChatMessage(any(), anyString(), anyString(), anyBoolean(), any());
     }
 
-    @Test void globalForwardUsesProcessedBodyAndSuppressesMassMentions() {
+    @Test void globalForwardUsesSharedWorkerProcessedBodyAndSuppressesMassMentions() {
         var sender = player("Sender");
         var event = new PlexonChatEvent(sender, ChatChannel.GLOBAL, "raw", Component.text("filtered @everyone"), Set.of(sender));
+        int tasksBefore = server.getScheduler().getPendingTasks().size();
         bridge.sendChat(event);
-        server.getScheduler().waitAsyncTasksFinished();
-        verify(discord, times(1)).processChatMessage(sender, "filtered @\u200Beveryone", "global", false, event);
+        bridge.sendChat(event);
+        bridge.sendChat(event);
+        assertEquals(tasksBefore, server.getScheduler().getPendingTasks().size(), "Discord export must not create one Bukkit task per chat message");
+        drainWorker();
+        verify(discord, times(3)).processChatMessage(sender, "filtered @\u200Beveryone", "global", false, event);
     }
 
     @Test void incomingMessageIsDeliveredOnceWithoutEcho() {
@@ -167,6 +171,11 @@ class DiscordBridgeTest extends PluginTestBase {
         assertDoesNotThrow(() -> bridge.receive(incomingEvent()));
         when(discord.getDestinationTextChannelForGameChannelName("global")).thenThrow(new NoSuchMethodError("API changed"));
         assertEquals("INCOMPATIBLE", bridge.status());
+    }
+
+    private void drainWorker() {
+        server.getScheduler().performOneTick();
+        server.getScheduler().waitAsyncTasksFinished();
     }
 
     private DiscordGuildMessagePostProcessEvent incomingEvent() {

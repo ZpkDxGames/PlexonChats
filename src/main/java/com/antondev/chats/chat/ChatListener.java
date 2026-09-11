@@ -1,36 +1,37 @@
 package com.antondev.chats.chat;
 
 import com.antondev.chats.PlexonChats;
-import io.papermc.paper.event.player.AsyncChatEvent;
+import io.papermc.paper.event.player.ChatEvent;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
-import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerQuitEvent;
+
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * Single native chat observation point.
+ *
+ * Paper's synchronous ChatEvent is intentionally used so the mature Bukkit/world/permission routing
+ * remains main-thread safe without allocating a scheduler task for every player message.
+ */
+@SuppressWarnings("deprecation")
 public final class ChatListener implements Listener {
     private final PlexonChats plugin;
     public ChatListener(PlexonChats plugin) { this.plugin = plugin; }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onPlayerChat(AsyncChatEvent event) {
-        // Preserve lower-priority moderation edits AND audience restrictions.
+    public void onPlayerChat(ChatEvent event) {
+        plugin.getDiagnostics().nativeObserved();
         String message = PlainTextComponentSerializer.plainText().serialize(event.message());
-        UUID senderId = event.getPlayer().getUniqueId();
         Set<UUID> viewers = event.viewers().stream().filter(Player.class::isInstance).map(Player.class::cast)
                 .map(Player::getUniqueId).collect(Collectors.toUnmodifiableSet());
         event.setCancelled(true);
-        Runnable route = () -> {
-            Player sender = Bukkit.getPlayer(senderId);
-            if (sender != null && sender.isOnline()) plugin.getChatManager().route(sender, message, viewers);
-        };
-        if (event.isAsynchronous()) Bukkit.getScheduler().runTask(plugin, route);
-        else route.run();
+        plugin.getChatManager().route(event.getPlayer(), message, viewers);
     }
 
     @EventHandler public void onQuit(PlayerQuitEvent event) {
