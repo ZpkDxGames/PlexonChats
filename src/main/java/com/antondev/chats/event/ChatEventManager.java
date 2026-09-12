@@ -117,11 +117,9 @@ public final class ChatEventManager {
     private void timeout(ChatEventEngine.Competition running) {
         if (!running.timeout()) return;
         ChatEventConfig.Definition definition = running.round().definition();
-        if (definition.revealAnswerOnTimeout()) {
-            Map<String, Component> values = baseValues(running);
-            values.put("answer", Component.text(running.round().canonicalAnswer()));
-            announce(running, message("timed-out", values));
-        }
+        Map<String, Component> values = baseValues(running);
+        if (!definition.revealAnswerOnTimeout()) values.put("answer", Component.empty());
+        announce(running, message(definition.revealAnswerOnTimeout() ? "timed-out" : "timed-out-hidden", values));
         play(running, "timeout");
         lastEvent = definition.id() + "/TIMED_OUT";
         lastWinner = "-";
@@ -303,7 +301,8 @@ public final class ChatEventManager {
     private Component message(String key, Map<String, Component> values) {
         ChatEventConfig current = config;
         if (current == null) return Component.empty();
-        return templates.render(current.messages().getOrDefault("prefix", "") + current.messages().getOrDefault(key, key), values);
+        String fallback = key.equals("timed-out-hidden") ? "<yellow>Time's up!</yellow>" : key;
+        return templates.render(current.messages().getOrDefault("prefix", "") + current.messages().getOrDefault(key, fallback), values);
     }
     private Map<String, Component> baseValues(ChatEventEngine.Competition running) {
         Map<String, Component> values = new LinkedHashMap<>();
