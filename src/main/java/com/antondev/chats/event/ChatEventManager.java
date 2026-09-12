@@ -2,7 +2,9 @@ package com.antondev.chats.event;
 
 import com.antondev.chats.ChatChannel;
 import com.antondev.chats.PlexonChats;
+import com.antondev.chats.text.ComponentTemplate;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
 import org.bukkit.Sound;
 import org.bukkit.command.CommandSender;
@@ -11,7 +13,6 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -26,6 +27,7 @@ public final class ChatEventManager {
 
     private final PlexonChats plugin;
     private final ChatEventRewardService rewards;
+    private final ComponentTemplate templates = new ComponentTemplate(MiniMessage.miniMessage());
     private final Map<ChatEventEngine.Type, ChatEventEngine.Generator> generators = ChatEventEngine.generators();
     private final AtomicReference<ChatEventEngine.Competition> active = new AtomicReference<>();
     private final Map<String, Long> cooldownUntilNanos = new LinkedHashMap<>();
@@ -232,6 +234,8 @@ public final class ChatEventManager {
         if (current != null) nextDeadlineNanos = System.nanoTime() + seconds(current.scheduler().initialDelaySeconds());
     }
 
+    /** Allocation-free inactive fast-path probe used by the normal chat route. */
+    public boolean hasActiveEvent() { return active.get() != null; }
     public boolean enabled() { ChatEventConfig current = config; return current != null && current.enabled(); }
     public boolean schedulerEnabled() { ChatEventConfig current = config; return current != null && current.scheduler().enabled(); }
     public boolean paused() { return paused; }
@@ -311,20 +315,20 @@ public final class ChatEventManager {
     private Component renderPrompt(ChatEventEngine.Round round) {
         Map<String, Component> context = new LinkedHashMap<>();
         round.promptValues().forEach((key, value) -> context.put(key, Component.text(value)));
-        return plugin.getConfigManager().render(round.definition().prompt(), context);
+        return templates.render(round.definition().prompt(), context);
     }
 
     private Component startedMessage(Map<String, Component> values) {
         ChatEventConfig current = config;
         if (current == null) return Component.empty();
-        return plugin.getConfigManager().render(current.messages().getOrDefault("started", "{prompt}"), values);
+        return templates.render(current.messages().getOrDefault("started", "{prompt}"), values);
     }
 
     private Component message(String key, Map<String, Component> values) {
         ChatEventConfig current = config;
         if (current == null) return Component.empty();
         String prefix = current.messages().getOrDefault("prefix", "");
-        return plugin.getConfigManager().render(prefix + current.messages().getOrDefault(key, key), values);
+        return templates.render(prefix + current.messages().getOrDefault(key, key), values);
     }
 
     private Map<String, Component> baseValues(ChatEventEngine.Competition running) {
