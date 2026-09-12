@@ -1,70 +1,106 @@
 # Upgrading PlexonChats
 
-## 3.0 → 3.1.0
+## 3.2.0 → 3.3.0
 
-PlexonChats 3.1.0 is a Core/platform/reliability migration based on production commit `4bff64e1691e79f0199baace428ec4349be9400b` from `3.0-Release`. It does not require a config or player-data reset.
+PlexonChats 3.3.0 adds configurable Chat Events while preserving the accepted 3.2.0 communication boundary. The migration is additive but advances configuration schema **4 → 5**.
 
 ### Before installing
 
-1. Use a staging **Paper 26.2 / Java 25** server first.
+1. Use a staging Paper **26.2 / Java 25** server first.
 2. Stop the server.
-3. Back up `PlexonChats-3.0.jar` and the entire `plugins/PlexonChats/` directory.
-4. Replace only the JAR with `PlexonChats-3.1.0.jar`.
-5. Keep the current `config.yml` and `players.yml`.
-6. Start the server and inspect console/diagnostics before inviting players back.
+3. Back up `PlexonChats-3.2.0.jar` and the entire `plugins/PlexonChats/` directory.
+4. Replace only the JAR with `PlexonChats-3.3.0.jar`.
+5. Keep the existing `config.yml` and `players.yml`.
+6. Start the server and inspect console plus `/chat diagnostics` before normal player traffic resumes.
 
-PlexonCore 1.0.0 is recommended for Core-native operation but is still optional at runtime. When Core is unavailable or outside the supported API range `>=1.0 <2.0`, PlexonChats continues in standalone mode.
+The migration creates a `config-before-v5-*.yml` backup before adding missing v5 defaults. Existing administrator settings and intentionally customized GUI/auto-message collections remain authoritative. Do **not** delete the data directory or overwrite the live config with the bundled defaults.
 
-### Configuration and player data
+### What schema v5 adds
 
-The configuration remains schema 3. Existing customized channel formats, GUI layouts, PM formats, join/quit formats, auto-message groups/content, Discord settings, sounds, permissions, and world filters remain authoritative.
+- `chat-events.enabled` master toggle;
+- independent `chat-events.scheduler.enabled` and interval settings;
+- audience/matching defaults;
+- reusable reward profiles;
+- TYPE, UNSCRAMBLE, MATH, TRIVIA, and REVERSE definitions;
+- configurable event sounds/messages;
+- Chat Events administration GUI page;
+- `plexonchats.events` and `plexonchats.events.manage` permissions.
 
-`players.yml` remains the player preference store and retains selected channel, mentions, tips, and private-message reception. A malformed `players.yml` is still not overwritten automatically.
+The default config enables Chat Events and automatic scheduling. Review reward values and event frequency before putting 3.3.0 into production. In particular, the default `rare`/`epic` profiles expect optional PlexonKeys, and cash profiles expect an available Vault economy provider. Missing integrations fail their reward component safely but should still be configured intentionally.
 
-Do not delete the data folder or copy bundled defaults over a live customized configuration.
+### Existing behavior preserved
 
-### Validation
+3.3.0 does not redesign LOCAL/GLOBAL routing, synchronous cancellable `PlexonChatEvent`, `PlexonChatsAPI`, `/msg`/`/reply`, item display, mentions, player preferences, connection messages, auto-messages, DiscordSRV isolation, or the transactional reload model.
+
+Only genuine accepted native Minecraft public chat can answer an event. `/g`, `/l`, PMs, Discord-origin messages, console, broadcasts, auto-messages, and synthetic/plugin sends do not count. During an active run, `PlexonChatEvent` cancellation is honored before answer acceptance.
+
+### First validation after upgrade
 
 Run:
 
 ```text
-/plexon modules
-/plexon integrations
-/plexon diagnostics
 /chat status
 /chat diagnostics
-/chat gui
+/chat events status
+/chat events list
+/chat events preview bingo
 /chat admin
-/chat automessages list
 ```
 
-With compatible PlexonCore present, expect Core mode and module `PlexonChats — READY`, except that a configured optional integration that is temporarily unavailable can produce `DEGRADED` while chat remains operational.
+Expect:
 
-Test one normal global message, one local message with near/far recipients, `/g`, `/l`, `/msg`, `/reply`, GUI toggles, one item preview, one scheduled-message group, and Discord if enabled. Every logical public message must route once; Discord must receive global chat at most once and must never receive local chat or PMs.
+- version `3.3.0`;
+- Chat Events master/scheduler/task state visible;
+- six default definitions loaded (`bingo`, `unscramble`, `math-normal`, `math-hard`, `trivia`, `reverse`);
+- Vault/PlexonKeys reward integration state reported explicitly;
+- one Chat Events coordinator only.
 
-Run `/chat reload` repeatedly. There must still be one auto-message task, one preference-save task, one item-preview cleanup task, one effective listener set, and one Discord bridge. Test an invalid candidate configuration and verify the prior live configuration remains active.
+### Staging smoke sequence
 
-Run `/plexon reload`, then immediately send chat and re-check `/plexon modules`. PlexonChats must remain operational without duplicate tasks/listeners.
+1. Verify normal LOCAL and GLOBAL chat still deliver once.
+2. Verify `/g`, `/l`, `/msg`, and `/reply` remain functional.
+3. Open `/chat admin` → Chat Events and verify the compact page.
+4. Run `/chat events preview bingo`; confirm it is private and does not start/reward anything.
+5. Run `/chat events start bingo`.
+6. Send a wrong answer; the run must remain active.
+7. Send the correct answer through normal native public chat; exactly one player must win.
+8. Confirm only the reward components actually available/configured are reported as granted.
+9. Attempt a second correct answer; no second reward may occur.
+10. Start another event and let it time out; no reward may occur.
+11. Test `/chat events stop`; cancellation grants nothing.
+12. Set scheduler disabled while master remains enabled; manual start must still work.
+13. Disable the master; no playable event may start.
+14. Re-enable and test `/chat reload`; successful reload cancels an active run without reward and restarts scheduling from a fresh initial delay.
+15. Verify auto-messages continue independently.
+16. If DiscordSRV is enabled, verify Discord-origin messages cannot answer and that global chat still has no echo loop.
+17. Re-run `/chat diagnostics` and inspect logs/TPS/MSPT for task leaks.
 
-For the standalone gate, remove PlexonCore on staging and restart. Public chat, local/global routing, PMs, GUI, auto-messages, preferences, `PlexonChatEvent`, and `PlexonChatsAPI` must still operate without linkage errors.
+Repeated `/chat reload` calls must retain one preference writer, one auto-message timer, one Chat Events coordinator, and one item-preview cleanup timer—never one task per event/player/message.
 
-Restart staging at least twice and confirm preferences persist, config remains unchanged, Core/API registrations are single, and scheduled/Discord tasks are not duplicated.
+### Validation of transactional rejection
 
-See [MIGRATION_3_1.md](MIGRATION_3_1.md) for the focused live deployment/rollback procedure.
+On staging, deliberately make one invalid candidate (for example an unknown Chat Event type or invalid MATH operand range) and run `/chat reload`. The reload must fail, identify the exact configuration path, and retain the prior live configuration. Repair the file before continuing.
 
-## Rollback from 3.1.0
+### Runtime deployment note
+
+GitHub source/release closure is allowed without direct PlexonCraft host access when build/tests/release provenance are exact. If production access is unavailable during release publication, mark live deployment/smoke testing as a separate pending operational step; do not infer an in-game PASS from CI.
+
+## Rollback from 3.3.0 to 3.2.0
 
 1. Stop the server.
-2. Restore `PlexonChats-3.0.jar`.
-3. Restore the backed-up `plugins/PlexonChats/` directory only if its data was actually damaged.
-4. Start the server and validate 3.0.
+2. Restore `PlexonChats-3.2.0.jar`.
+3. Restore the pre-v5 `config-before-v5-*.yml` as `config.yml` before starting 3.2.0. Schema 4 does not know the v5 Chat Events section.
+4. Preserve `players.yml`; its preference format is unchanged.
+5. Start the server and validate normal LOCAL/GLOBAL chat, PMs, GUI, auto-messages, DiscordSRV, and `/chat diagnostics`.
 
-3.1.0 intentionally avoids irreversible configuration or player-data migrations.
+3.3.0 does not perform irreversible player-data migration. The config backup is the clean rollback boundary.
 
 ---
+
+## Historical 3.0 → 3.1.0 notes
+
+PlexonChats 3.1.0 was a Core/platform/reliability migration based on production `3.0-Release`. It retained schema 3, preserved all communication features, and introduced the optional PlexonCore lifecycle/API bridge. When Core was unavailable or incompatible, Chats continued in standalone mode.
 
 ## Historical 2.0 → 3.0 notes
 
 Version 3.0 introduced configuration schema 3, configurable rich channel formats, persistent player preferences, scheduled-message groups, configurable GUI pages, `PlexonChatEvent`, connection messages, and optional DiscordSRV routing. Existing 2.0/unversioned configurations were conservatively upgraded with backups while preserving explicitly configured values and intentionally empty custom collections.
-
-The main visible 2.0 → 3.0 difference was that stored channel/item formats began to be rendered rather than ignored by the old hardcoded output. Advanced MiniMessage player tags also became permission/config gated. Those 3.0 behaviors are preserved unchanged by 3.1.0.
