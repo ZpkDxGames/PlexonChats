@@ -57,6 +57,7 @@ public final class ChatManager {
         return true;
     }
 
+    /** Native public-chat route. Command shortcuts use sendPublic directly and therefore cannot win Chat Events. */
     public void route(Player sender, String raw, Set<UUID> allowedViewers) {
         String global = plugin.getConfigManager().getGlobalShortcutPrefix();
         String local = plugin.getConfigManager().getLocalShortcutPrefix();
@@ -68,15 +69,24 @@ public final class ChatManager {
             channel = ChatChannel.LOCAL;
             raw = raw.substring(local.length());
         }
-        sendPublic(sender, channel, raw, allowedViewers);
+        sendPublic(sender, channel, raw, allowedViewers, true);
     }
 
     public boolean validateMessage(Player sender, String raw) {
+        return validateStructure(sender, raw) && validateRateLimit(sender, raw);
+    }
+
+    private boolean validateStructure(Player sender, String raw) {
         var config = plugin.getConfigManager();
         if (raw.isBlank()) { sender.sendMessage(config.message("empty-message")); return false; }
         int max = config.integer("chat.max-message-length", 512, 1, 10_000);
         if (raw.length() > max) { sender.sendMessage(config.message("message-too-long", Map.of("limit", String.valueOf(max)))); return false; }
         if (raw.indexOf('\n') >= 0 || raw.indexOf('\r') >= 0) { sender.sendMessage(config.message("message-newline")); return false; }
+        return true;
+    }
+
+    private boolean validateRateLimit(Player sender, String raw) {
+        var config = plugin.getConfigManager();
         if (sender.hasPermission("plexonchats.bypass.cooldown")) return true;
         MessageLimiter.Result result = limiter.check(sender.getUniqueId(), raw,
                 config.number("chat.cooldown-milliseconds", 1000, 0, 60_000),
@@ -89,10 +99,15 @@ public final class ChatManager {
         return true;
     }
 
-    public void sendPublic(Player sender, ChatChannel channel, String raw) { sendPublic(sender, channel, raw, null); }
+    public void sendPublic(Player sender, ChatChannel channel, String raw) { sendPublic(sender, channel, raw, null, false); }
+    public void sendPublic(Player sender, ChatChannel channel, String raw, Set<UUID> allowedViewers) { sendPublic(sender, channel, raw, allowedViewers, false); }
 
-    public void sendPublic(Player sender, ChatChannel channel, String raw, Set<UUID> allowedViewers) {
-        if (!checkChannel(sender, channel) || !validateMessage(sender, raw)) return;
+    private void sendPublic(Player sender, ChatChannel channel, String raw, Set<UUID> allowedViewers, boolean nativePublicChat) {
+        if (!checkChannel(sender, channel) || !validateStructure(sender, raw)) return;
+        boolean activeCompetition = nativePublicChat && plugin.getChatEvents() != null && plugin.getChatEvents().hasActiveEvent();
+        // Preserve the stable inactive path exactly: moderation happens before placeholder/event work when no competition is active.
+        if (!activeCompetition && !validateRateLimit(sender, raw)) return;
+
         Set<Player> recipients = new LinkedHashSet<>();
         var location = sender.getLocation();
         double radius = plugin.getConfigManager().getLocalRadius();
@@ -111,6 +126,12 @@ public final class ChatManager {
             plugin.getDiagnostics().customEventCancelled();
             return;
         }
+
+        // A correct active-event answer is considered only after the normal synchronous cancellation contract.
+        // Rate/duplicate history is deliberately checked afterwards so stale pre-event duplicate history cannot steal a valid win.
+        if (activeCompetition && plugin.getChatEvents().acceptAnswer(sender, channel, raw)) return;
+        if (activeCompetition && !validateRateLimit(sender, raw)) return;
+
         Component formatted = plugin.getChatComponentFactory().buildPublicMessage(sender, channel, event.getMessage());
         Set<Player> onlineRecipients = new LinkedHashSet<>();
         for (Player player : event.getRecipients()) {

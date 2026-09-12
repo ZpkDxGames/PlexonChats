@@ -1,5 +1,38 @@
 # Changelog
 
+## 3.3.0 — configurable Chat Events
+
+### Added
+
+- Fully configurable Chat Events subsystem with independent persistent master and automatic-scheduler toggles.
+- One bounded coordinator, one active competition at a time, monotonic deadlines, weighted selection, per-event cooldowns, minimum-online/audience filters, immediate-repeat avoidance, timeout and cancellation lifecycle.
+- `TYPE`, `UNSCRAMBLE`, `MATH`, `TRIVIA`, and Unicode-safe `REVERSE` generators.
+- Deterministic answer normalization with case, trim, whitespace, Unicode-normalization, and optional diacritic controls.
+- Exact-once winner transition and exact-once reward attempt, including near-simultaneous answer regression coverage.
+- Reusable reward profiles combining Vault economy, optional PlexonKeys service grants, and controlled console commands.
+- `/chat events status|list|enable|disable|pause|resume|start|stop|preview` with permission-aware completion.
+- `plexonchats.events` and `plexonchats.events.manage`, included under `plexonchats.admin`.
+- Compact Chat Events administration GUI using the existing custom-holder/click-routing protections.
+- Chat Events status/reward-integration/failure fields in `/chat diagnostics` and concise state in `/chat status`.
+- Configuration schema v5 migration with Chat Events defaults and `config-before-v5-*` backup.
+
+### Reliability / security
+
+- Only genuine accepted native Minecraft public chat may win; command shortcuts, PMs, Discord-origin messages, broadcasts, auto-messages, console and synthetic sends cannot count.
+- `PlexonChatEvent` cancellation remains authoritative before an answer is accepted. Correct active-event answers are checked before stale duplicate-history throttling; wrong answers remain subject to normal moderation.
+- Reward integrations execute only after an exact winner exists and only on the primary thread. Partial reward failure never reopens a competition or chooses a second winner.
+- PlexonKeys is consumed through its existing Bukkit service boundary without vendoring/bundling another plugin JAR.
+- Player answers are data only: they are never parsed as trusted MiniMessage or injected into console rewards.
+- Timeout/cancel/reload/master-disable paths grant nothing; timeout still announces even when answer reveal is disabled.
+- Invalid Chat Events configuration rejects the entire reload candidate while the previous live runtime remains active.
+- Existing LOCAL/GLOBAL chat, PM/reply, item display, mentions, player preferences, GUI, auto-messages, DiscordSRV isolation, public API, synchronous `PlexonChatEvent`, and transactional reload behavior remain covered by the full suite.
+
+### Compatibility
+
+- Target remains Paper 26.2 / Java 25 / PlexonCore 2.0.4 compile boundary.
+- Vault and PlexonKeys are optional runtime integrations; their absence does not disable normal chat or Chat Events without those reward components.
+- Existing `PlexonChatsAPI` binary surface is not broken by Chat Events.
+
 ## 3.2.0 — stable repository closure
 
 - Promote the accepted `3.2.0-rc.1` / Phase 3 source lineage to stable `3.2.0` without introducing a parallel chat route or speculative Essentials parity.

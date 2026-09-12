@@ -10,12 +10,13 @@ softdepend:
   - PlaceholderAPI
   - LuckPerms
   - PlexonRanks
+  - PlexonKeys
   - DiscordSRV
 
 commands:
   chat:
     description: Main PlexonChats command
-    usage: /chat <channel|gui|admin|reload|status|diagnostics|automessages>
+    usage: /chat <channel|gui|admin|reload|status|diagnostics|automessages|events>
     permission: plexonchats.use
   g:
     description: Quick global chat shortcut
@@ -73,6 +74,12 @@ permissions:
   plexonchats.tell:
     description: Allows sending private messages
     default: true
+  plexonchats.events:
+    description: View Chat Events status, list and help
+    default: op
+  plexonchats.events.manage:
+    description: Enable, disable, pause, resume, start, stop and preview Chat Events
+    default: op
   plexonchats.admin:
     description: Full admin access to PlexonChats
     default: op
@@ -88,6 +95,8 @@ permissions:
       plexonchats.tell: true
       plexonchats.manage: true
       plexonchats.automessages: true
+      plexonchats.events: true
+      plexonchats.events.manage: true
       plexonchats.formatting: true
       plexonchats.formatting.advanced: true
       plexonchats.bypass.cooldown: true

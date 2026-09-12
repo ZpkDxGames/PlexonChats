@@ -131,8 +131,9 @@ class AutoMessageTest extends PluginTestBase {
         player("Viewer");
         for (int i = 0; i < 5; i++) assertTrue(plugin.reloadPlugin());
         long count = server.getScheduler().getPendingTasks().stream().filter(task -> task.getOwner() == plugin).count();
-        // One preference timer, one auto-message timer, one preview-cache cleanup timer.
-        assertEquals(3, count);
+        // One preference timer, one auto-message timer, one Chat Events coordinator and one preview-cache cleanup timer.
+        assertEquals(4, count);
+        assertTrue(plugin.getChatEvents().taskActive());
     }
 
     @Test void titleDeliveryUsesTitleAndSubtitle() throws Exception {

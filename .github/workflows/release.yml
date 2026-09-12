@@ -54,7 +54,7 @@ jobs:
           case "${VERSION}" in *-*) echo "Stable workflow refuses prerelease version: ${VERSION}" >&2; exit 1;; esac
           git fetch origin main
           test "${GITHUB_SHA}" = "$(git rev-parse origin/main)"
-          git merge-base --is-ancestor c7191c21654b11ea55c03e5fecae629e20898319 HEAD
+          git merge-base --is-ancestor f88d15263ea4e43c0228de0cae281e3940bfd36e HEAD
           test -s ".release/${VERSION}.md"
           if gh release view "v${VERSION}" >/dev/null 2>&1; then echo "v${VERSION} release already exists" >&2; exit 1; fi
           if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null 2>&1; then echo "v${VERSION} tag already exists" >&2; exit 1; fi
@@ -94,11 +94,32 @@ jobs:
           JAR="target/PlexonChats-${VERSION}.jar"
           test -s "${JAR}"
           jar tf "${JAR}" > target/jar-contents.txt
-          for resource in plugin.yml config.yml com/antondev/chats/PlexonChats.class com/antondev/chats/api/PlexonChatEvent.class com/antondev/chats/api/PlexonChatsAPI.class com/antondev/chats/diagnostics/ChatDiagnostics.class; do
+          for resource in \
+            plugin.yml \
+            config.yml \
+            com/antondev/chats/PlexonChats.class \
+            com/antondev/chats/api/PlexonChatEvent.class \
+            com/antondev/chats/api/PlexonChatsAPI.class \
+            com/antondev/chats/diagnostics/ChatDiagnostics.class \
+            com/antondev/chats/event/ChatEventManager.class \
+            com/antondev/chats/event/ChatEventEngine.class \
+            com/antondev/chats/event/ChatEventConfig.class \
+            com/antondev/chats/event/ChatEventRewardService.class; do
             grep -qx "${resource}" target/jar-contents.txt
           done
-          for prefix in 'com/zpkdxgames/plexoncore/' 'github/scarsz/discordsrv/' 'io/papermc/paper/' 'org/bukkit/' 'net/kyori/adventure/' 'me/clip/placeholderapi/' 'net/luckperms/'; do
-            if grep -q "^${prefix}" target/jar-contents.txt; then echo "Provided/runtime API classes must not be bundled: ${prefix}" >&2; exit 1; fi
+          for prefix in \
+            'com/zpkdxgames/plexoncore/' \
+            'com/antondev/keys/' \
+            'github/scarsz/discordsrv/' \
+            'io/papermc/paper/' \
+            'org/bukkit/' \
+            'net/kyori/adventure/' \
+            'me/clip/placeholderapi/' \
+            'net/luckperms/'; do
+            if grep -q "^${prefix}" target/jar-contents.txt; then
+              echo "Provided/runtime API classes must not be bundled: ${prefix}" >&2
+              exit 1
+            fi
           done
           unzip -p "${JAR}" plugin.yml | grep -F "version: '${VERSION}'"
           unzip -p "${JAR}" plugin.yml | grep -F "api-version: '26.2'"
@@ -114,8 +135,8 @@ jobs:
           commit=${GITHUB_SHA}
           tag=v${VERSION}
           version=${VERSION}
-          rollback_tag=v3.1.1
-          rollback_sha=c7191c21654b11ea55c03e5fecae629e20898319
+          rollback_tag=v3.2.0
+          rollback_sha=f88d15263ea4e43c0228de0cae281e3940bfd36e
           java=25
           class_major=69
           paper=26.2.build.121-stable
