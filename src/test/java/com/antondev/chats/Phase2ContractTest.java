@@ -11,8 +11,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class Phase2ContractTest extends PluginTestBase {
     @Test void releaseMetadataAndConfigGenerationMatchCandidate() {
-        assertEquals("3.2.0", plugin.getPluginMeta().getVersion());
-        assertEquals(4, ConfigUpgrader.VERSION);
+        assertEquals("3.3.0", plugin.getPluginMeta().getVersion());
+        assertEquals(5, ConfigUpgrader.VERSION);
         assertTrue(plugin.getConfigManager().revision() >= 1);
         assertTrue(plugin.getDiagnostics().lastReload().startsWith("SUCCESS"));
     }
@@ -42,7 +42,7 @@ class Phase2ContractTest extends PluginTestBase {
 
     @Test void invalidGuiSlotAndUnknownDeliveryAreStrictlyRejected() throws Exception {
         var yaml = new YamlConfiguration();
-        yaml.loadFromString("config-version: 4\nchannels:\n  local:\n    format: '{message}'\n  global:\n    format: '{message}'\ngui:\n  rows: 1\n  items:\n    bad:\n      slot: 12\n      material: PAPER\nauto-messages:\n  groups:\n    test:\n      interval-seconds: 30\n      initial-delay-seconds: 1\n      messages:\n        - delivery: UNKNOWN\n          lines: ['hello']\n");
+        yaml.loadFromString("config-version: 5\nchannels:\n  local:\n    format: '{message}'\n  global:\n    format: '{message}'\ngui:\n  rows: 1\n  items:\n    bad:\n      slot: 12\n      material: PAPER\nauto-messages:\n  groups:\n    test:\n      interval-seconds: 30\n      initial-delay-seconds: 1\n      messages:\n        - delivery: UNKNOWN\n          lines: ['hello']\n");
         assertThrows(IllegalArgumentException.class, () -> ConfigManager.validate(yaml));
         yaml.set("gui.items.bad.slot", 1);
         assertThrows(IllegalArgumentException.class, () -> ConfigManager.validate(yaml));
@@ -55,6 +55,7 @@ class Phase2ContractTest extends PluginTestBase {
         assertTrue(plugin.reloadPlugin());
         assertTrue(plugin.reloadPlugin());
         assertTrue(plugin.getAutoMessages().taskActive());
+        assertTrue(plugin.getChatEvents().taskActive());
         assertEquals(before, server.getScheduler().getPendingTasks().size());
     }
 
