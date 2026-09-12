@@ -40,12 +40,8 @@ public final class ChatEventManager {
     private String lastWinner = "-";
     private String recentFailure = "NONE";
 
-    public ChatEventManager(PlexonChats plugin) {
-        this.plugin = plugin;
-        this.rewards = new ChatEventRewardService(plugin);
-    }
+    public ChatEventManager(PlexonChats plugin) { this.plugin = plugin; this.rewards = new ChatEventRewardService(plugin); }
 
-    /** Apply the already-validated immutable config snapshot and restart one coordinator from a fresh initial delay. */
     public void reload() {
         cancelActive("CONFIG_RELOAD", true);
         stopCoordinator();
@@ -60,18 +56,9 @@ public final class ChatEventManager {
         if (next.enabled()) coordinatorTask = Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 20L, 20L);
     }
 
-    public void close() {
-        cancelActive("PLUGIN_DISABLE", false);
-        stopCoordinator();
-        config = null;
-    }
-
+    public void close() { cancelActive("PLUGIN_DISABLE", false); stopCoordinator(); config = null; }
     public void refreshIntegrations() { rewards.refreshIntegrations(); }
-
-    private void stopCoordinator() {
-        if (coordinatorTask != null) coordinatorTask.cancel();
-        coordinatorTask = null;
-    }
+    private void stopCoordinator() { if (coordinatorTask != null) coordinatorTask.cancel(); coordinatorTask = null; }
 
     private void tick() {
         ChatEventConfig current = config;
@@ -83,8 +70,7 @@ public final class ChatEventManager {
             return;
         }
         if (!current.scheduler().enabled() || paused || now < nextDeadlineNanos) return;
-        StartStatus result = startRandom(true);
-        if (result != StartStatus.STARTED) {
+        if (startRandom(true) != StartStatus.STARTED) {
             long defer = Math.max(10, Math.min(60, current.scheduler().minIntervalSeconds()));
             nextDeadlineNanos = now + seconds(defer);
         }
@@ -107,7 +93,8 @@ public final class ChatEventManager {
         try { reward = rewards.grant(player, running.round().definition()); }
         catch (RuntimeException | LinkageError ex) {
             plugin.getDiagnostics().recordIntegrationFailure("chat-events-reward", ex);
-            reward = new ChatEventRewardService.RewardResult(List.of(new ChatEventRewardService.ComponentResult("BUNDLE", ChatEventRewardService.Status.FAILED, ex.getClass().getSimpleName(), "")));
+            reward = new ChatEventRewardService.RewardResult(List.of(new ChatEventRewardService.ComponentResult(
+                    "BUNDLE", ChatEventRewardService.Status.FAILED, ex.getClass().getSimpleName(), "")));
         }
         long elapsed = Math.max(0, System.nanoTime() - running.startedNanos());
         Map<String, Component> values = baseValues(running);
@@ -144,7 +131,6 @@ public final class ChatEventManager {
     }
 
     public boolean stop() { return cancelActive("ADMIN_CANCEL", true); }
-
     private boolean cancelActive(String reason, boolean broadcast) {
         ChatEventEngine.Competition running = active.get();
         if (running == null || !running.cancel()) return false;
@@ -171,8 +157,7 @@ public final class ChatEventManager {
         if (active.get() != null) return StartStatus.ALREADY_ACTIVE;
         List<ChatEventConfig.Definition> eligible = selectableDefinitions(System.nanoTime());
         if (eligible.isEmpty()) return StartStatus.NO_ELIGIBLE_EVENTS;
-        ChatEventConfig.Definition selected = weighted(eligible);
-        return startDefinition(selected, scheduled);
+        return startDefinition(weighted(eligible), scheduled);
     }
 
     private StartStatus startDefinition(ChatEventConfig.Definition definition, boolean scheduled) {
@@ -222,9 +207,7 @@ public final class ChatEventManager {
             sender.sendMessage(Component.text("Answer(s): " + String.join(", ", round.acceptedAnswers())));
             sender.sendMessage(Component.text("Reward: " + rewardDescription(definition.rewardProfile())));
             sender.sendMessage(Component.text("Duration: " + definition.durationSeconds() + "s • cooldown: " + definition.cooldownSeconds() + "s"));
-        } catch (RuntimeException ex) {
-            sender.sendMessage(Component.text("Preview failed: " + ex.getMessage()));
-        }
+        } catch (RuntimeException ex) { sender.sendMessage(Component.text("Preview failed: " + ex.getMessage())); }
     }
 
     public void pause() { paused = true; }
@@ -234,7 +217,6 @@ public final class ChatEventManager {
         if (current != null) nextDeadlineNanos = System.nanoTime() + seconds(current.scheduler().initialDelaySeconds());
     }
 
-    /** Allocation-free inactive fast-path probe used by the normal chat route. */
     public boolean hasActiveEvent() { return active.get() != null; }
     public boolean enabled() { ChatEventConfig current = config; return current != null && current.enabled(); }
     public boolean schedulerEnabled() { ChatEventConfig current = config; return current != null && current.scheduler().enabled(); }
@@ -283,9 +265,7 @@ public final class ChatEventManager {
                 .filter(definition -> definition.weight() > 0)
                 .filter(definition -> cooldownUntilNanos.getOrDefault(definition.id(), 0L) <= now)
                 .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
-        if (current.scheduler().avoidImmediateRepeat() && values.size() > 1 && lastStartedId != null) {
-            values.removeIf(definition -> definition.id().equals(lastStartedId));
-        }
+        if (current.scheduler().avoidImmediateRepeat() && values.size() > 1 && lastStartedId != null) values.removeIf(definition -> definition.id().equals(lastStartedId));
         return values;
     }
 
@@ -293,15 +273,14 @@ public final class ChatEventManager {
         long total = 0;
         for (ChatEventConfig.Definition definition : definitions) total = Math.addExact(total, definition.weight());
         long target = ThreadLocalRandom.current().nextLong(total);
-        for (ChatEventConfig.Definition definition : definitions) {
-            target -= definition.weight();
-            if (target < 0) return definition;
-        }
+        for (ChatEventConfig.Definition definition : definitions) { target -= definition.weight(); if (target < 0) return definition; }
         return definitions.getLast();
     }
 
     private List<Player> eligiblePlayers(ChatEventConfig.Definition definition) {
-        return Bukkit.getOnlinePlayers().stream().filter(player -> eligibleNow(player, definition)).toList();
+        List<Player> result = new ArrayList<>();
+        for (Player player : Bukkit.getOnlinePlayers()) if (eligibleNow(player, definition)) result.add(player);
+        return List.copyOf(result);
     }
 
     private boolean eligibleNow(Player player, ChatEventConfig.Definition definition) {
@@ -317,20 +296,15 @@ public final class ChatEventManager {
         round.promptValues().forEach((key, value) -> context.put(key, Component.text(value)));
         return templates.render(round.definition().prompt(), context);
     }
-
     private Component startedMessage(Map<String, Component> values) {
         ChatEventConfig current = config;
-        if (current == null) return Component.empty();
-        return templates.render(current.messages().getOrDefault("started", "{prompt}"), values);
+        return current == null ? Component.empty() : templates.render(current.messages().getOrDefault("started", "{prompt}"), values);
     }
-
     private Component message(String key, Map<String, Component> values) {
         ChatEventConfig current = config;
         if (current == null) return Component.empty();
-        String prefix = current.messages().getOrDefault("prefix", "");
-        return templates.render(prefix + current.messages().getOrDefault(key, key), values);
+        return templates.render(current.messages().getOrDefault("prefix", "") + current.messages().getOrDefault(key, key), values);
     }
-
     private Map<String, Component> baseValues(ChatEventEngine.Competition running) {
         Map<String, Component> values = new LinkedHashMap<>();
         ChatEventConfig.Definition definition = running.round().definition();
@@ -343,14 +317,12 @@ public final class ChatEventManager {
         running.round().promptValues().forEach((key, value) -> values.put(key, Component.text(value)));
         return values;
     }
-
     private void announce(ChatEventEngine.Competition running, Component component) {
         for (UUID id : running.eligiblePlayers()) {
             Player player = Bukkit.getPlayer(id);
             if (player != null && player.isOnline()) player.sendMessage(component);
         }
     }
-
     private void play(ChatEventEngine.Competition running, String key) {
         ChatEventConfig current = config;
         if (current == null) return;
@@ -385,9 +357,6 @@ public final class ChatEventManager {
         return parts.isEmpty() ? "none" : String.join(" + ", parts);
     }
 
-    private static long seconds(long value) {
-        if (value <= 0) return 0;
-        return Math.multiplyExact(value, 1_000_000_000L);
-    }
+    private static long seconds(long value) { return value <= 0 ? 0 : Math.multiplyExact(value, 1_000_000_000L); }
     private static String formatElapsed(long nanos) { return String.format(Locale.ROOT, "%.3fs", nanos / 1_000_000_000.0); }
 }
