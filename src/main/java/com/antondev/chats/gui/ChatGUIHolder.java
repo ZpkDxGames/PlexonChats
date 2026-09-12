@@ -7,7 +7,7 @@ import java.util.Map;
 import java.util.UUID;
 
 public final class ChatGUIHolder implements InventoryHolder {
-    public enum Page { MAIN, ADMIN, CREATOR }
+    public enum Page { MAIN, ADMIN, EVENTS, CREATOR }
     private final Page page;
     private final UUID viewer;
     private final long revision;
