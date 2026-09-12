@@ -41,7 +41,7 @@ class ConfigurationAndGuiTest extends PluginTestBase {
         assertEquals("!!", plugin.getConfigManager().getGlobalShortcutPrefix());
         assertEquals("<gold>LEGACY {player}: {message}", plugin.getConfigManager().getGlobalFormat());
         try (var files = Files.list(file.getParent())) {
-            var backups = files.filter(path -> path.getFileName().toString().startsWith("config-before-v4-")).toList();
+            var backups = files.filter(path -> path.getFileName().toString().startsWith("config-before-v5-")).toList();
             assertEquals(1, backups.size());
             assertEquals(legacy, Files.readString(backups.getFirst()));
         }
@@ -63,11 +63,12 @@ class ConfigurationAndGuiTest extends PluginTestBase {
                 assertEquals(value, migrated.get(key), "Preserve 2.0 setting: " + key);
             }
         });
-        assertEquals(4, migrated.getInt("config-version"));
+        assertEquals(5, migrated.getInt("config-version"));
         assertEquals("DEFAULT", migrated.getString("connection-messages.join.mode"));
         assertNotNull(migrated.getConfigurationSection("integrations.discordsrv"));
+        assertNotNull(migrated.getConfigurationSection("chat-events"));
         try (var files = Files.list(path.getParent())) {
-            var backup = files.filter(file -> file.getFileName().toString().startsWith("config-before-v4-")).findFirst().orElseThrow();
+            var backup = files.filter(file -> file.getFileName().toString().startsWith("config-before-v5-")).findFirst().orElseThrow();
             assertEquals(source, Files.readString(backup));
         }
     }
@@ -76,13 +77,14 @@ class ConfigurationAndGuiTest extends PluginTestBase {
         Files.writeString(path, "config-version: 2\ngui:\n  items: {}\nauto-messages:\n  groups: {}\n");
         assertTrue(plugin.reloadPlugin());
         var migrated = YamlConfiguration.loadConfiguration(path.toFile());
-        assertEquals(4, migrated.getInt("config-version"));
+        assertEquals(5, migrated.getInt("config-version"));
         assertTrue(migrated.getConfigurationSection("gui.items").getKeys(false).isEmpty());
         assertTrue(migrated.getConfigurationSection("auto-messages.groups").getKeys(false).isEmpty());
+        assertNotNull(migrated.getConfigurationSection("chat-events"));
     }
-    @Test void releaseMetadataMatchesPhaseTwoCandidate() {
-        assertEquals("3.2.0", plugin.getPluginMeta().getVersion());
-        assertEquals(4, com.antondev.chats.config.ConfigUpgrader.VERSION);
+    @Test void releaseMetadataMatchesChatEventsCandidate() {
+        assertEquals("3.3.0", plugin.getPluginMeta().getVersion());
+        assertEquals(5, com.antondev.chats.config.ConfigUpgrader.VERSION);
     }
     @Test void rowsAndCustomButtonPositionsAreHonored() throws Exception {
         var player = player("Viewer");
@@ -111,9 +113,19 @@ class ConfigurationAndGuiTest extends PluginTestBase {
         assertEquals(1, layout.buttons().size());
         assertEquals(3, warnings.size());
     }
-    @Test void defaultAdminLayoutHasAllSixButtons() {
+    @Test void defaultAdminLayoutIncludesChatEventsButton() {
         var layout = GuiLayout.read(plugin.getConfigManager().section("gui.admin"), "Admin", message -> fail(message));
-        assertEquals(6, layout.buttons().size());
+        assertEquals(7, layout.buttons().size());
+        assertTrue(layout.buttons().values().stream().anyMatch(button -> button.action() == GuiAction.OPEN_CHAT_EVENTS));
+    }
+    @Test void chatEventsPageUsesDedicatedSafeHolder() {
+        var player = player("Admin");
+        player.addAttachment(plugin, "plexonchats.gui", true);
+        player.addAttachment(plugin, "plexonchats.events.manage", true);
+        plugin.getChatGUI().openPage(player, ChatGUIHolder.Page.EVENTS);
+        assertEquals(27, player.getOpenInventory().getTopInventory().getSize());
+        assertInstanceOf(ChatGUIHolder.class, player.getOpenInventory().getTopInventory().getHolder());
+        assertEquals(ChatGUIHolder.Page.EVENTS, ((ChatGUIHolder) player.getOpenInventory().getTopInventory().getHolder()).getPage());
     }
     @Test void administrationPageAndActionsRequirePermissions() {
         var player = player("Visitor");
