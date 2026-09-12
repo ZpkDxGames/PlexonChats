@@ -10,6 +10,7 @@ import com.antondev.chats.chat.ConnectionMessageListener;
 import com.antondev.chats.command.*;
 import com.antondev.chats.config.ConfigManager;
 import com.antondev.chats.diagnostics.ChatDiagnostics;
+import com.antondev.chats.event.ChatEventManager;
 import com.antondev.chats.gui.ChatGUI;
 import com.antondev.chats.gui.GUIListener;
 import com.antondev.chats.integration.DiscordBridge;
@@ -52,6 +53,7 @@ public class PlexonChats extends JavaPlugin implements Listener {
     private TextService text;
     private ChatGUI chatGUI;
     private AutoMessageManager autoMessages;
+    private ChatEventManager chatEvents;
     private DiscordBridge discordBridge = DiscordBridge.inactive("DISABLED");
     private MessageCommand messageCommand;
     private PlexonChatsAPI api;
@@ -74,9 +76,11 @@ public class PlexonChats extends JavaPlugin implements Listener {
             placeholderHandler = new PlaceholderHandler(this);
             chatComponentFactory = new ChatComponentFactory(this);
             autoMessages = new AutoMessageManager(this);
+            chatEvents = new ChatEventManager(this);
             chatGUI = new ChatGUI(this);
             discordBridge = DiscordBridge.create(this);
             autoMessages.reload();
+            chatEvents.reload();
 
             getServer().getPluginManager().registerEvents(new ChatListener(this), this);
             getServer().getPluginManager().registerEvents(new ConnectionMessageListener(this), this);
@@ -153,6 +157,8 @@ public class PlexonChats extends JavaPlugin implements Listener {
         discordBridge = DiscordBridge.create(this);
         itemPreviewManager.cleanupExpired();
         publishCoreHealth();
+        // Keep this last: a failed earlier refresh leaves an active Chat Event untouched when the config rollback occurs.
+        chatEvents.reload();
     }
 
     @EventHandler
@@ -165,6 +171,9 @@ public class PlexonChats extends JavaPlugin implements Listener {
             placeholderApiService.refreshHooks();
         } else if (name.equals("Vault") || name.equals("LuckPerms") || name.equals("PlexonRanks")) {
             playerInfoService.refreshHooks();
+            if (name.equals("Vault") && chatEvents != null) chatEvents.refreshIntegrations();
+        } else if (name.equals("PlexonKeys")) {
+            if (chatEvents != null) chatEvents.refreshIntegrations();
         } else return;
         publishCoreHealth();
     }
@@ -179,6 +188,9 @@ public class PlexonChats extends JavaPlugin implements Listener {
             placeholderApiService.refreshHooks();
         } else if (name.equals("Vault") || name.equals("LuckPerms") || name.equals("PlexonRanks")) {
             playerInfoService.refreshHooks();
+            if (name.equals("Vault") && chatEvents != null) chatEvents.refreshIntegrations();
+        } else if (name.equals("PlexonKeys")) {
+            if (chatEvents != null) chatEvents.refreshIntegrations();
         } else return;
         publishCoreHealth();
     }
@@ -190,7 +202,7 @@ public class PlexonChats extends JavaPlugin implements Listener {
             String discord = discordBridge.status();
             if (!discord.equals("ACTIVE")) degraded.add("DiscordSRV " + discord);
         }
-        String readyDetail = "Chat routing, preferences, scheduler, GUI, API and optional bridge operational";
+        String readyDetail = "Chat routing, preferences, schedulers, GUI, API and optional bridges operational";
         if (degraded.isEmpty()) coreBridge.markReady(readyDetail);
         else coreBridge.markDegraded(readyDetail + "; " + String.join(", ", degraded));
     }
@@ -202,6 +214,7 @@ public class PlexonChats extends JavaPlugin implements Listener {
 
     private void shutdown() {
         if (cleanupTask != null) { cleanupTask.cancel(); cleanupTask = null; }
+        if (chatEvents != null) { chatEvents.close(); chatEvents = null; }
         if (autoMessages != null) { autoMessages.close(); autoMessages = null; }
         if (discordBridge != null) { discordBridge.close(); discordBridge = DiscordBridge.inactive("DISABLED"); }
         if (chatGUI != null) chatGUI.closeAll();
@@ -228,6 +241,7 @@ public class PlexonChats extends JavaPlugin implements Listener {
     public TextService getText() { return text; }
     public ChatGUI getChatGUI() { return chatGUI; }
     public AutoMessageManager getAutoMessages() { return autoMessages; }
+    public ChatEventManager getChatEvents() { return chatEvents; }
     public DiscordBridge getDiscordBridge() { return discordBridge; }
     public MessageCommand getMessageCommand() { return messageCommand; }
     public PlexonChatsAPI getApi() { return api; }
