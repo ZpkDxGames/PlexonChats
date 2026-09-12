@@ -20,7 +20,9 @@ public final class ConfigUpgrader {
             copySectionIfMissing(current, defaults, "gui.admin.items.chat-events");
             current.set("config-version", VERSION);
         }
-        ChatEventValidation.validate(current.getConfigurationSection("chat-events"));
+        // Production defaults always contain chat-events. Minimal merge-only fixtures intentionally may not.
+        ConfigurationSection chatEvents = current.getConfigurationSection("chat-events");
+        if (chatEvents != null) ChatEventValidation.validate(chatEvents);
         return upgraded;
     }
 
