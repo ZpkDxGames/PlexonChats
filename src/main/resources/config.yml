@@ -1,10 +1,10 @@
 # ============================================================
-# PlexonChats 3.2 — Phase 2 / Paper 26.2 / Java 25
+# PlexonChats 3.3 — Chat Events / Paper 26.2 / Java 25
 # All admin-owned text supports MiniMessage. UTF-8, spaces only.
 # /chat reload validates the complete candidate before activation.
 # Existing settings are retained, with a backup before schema migration.
 # ============================================================
-config-version: 4
+config-version: 5
 server-name: "Plexon"
 default-channel: LOCAL
 
@@ -12,13 +12,10 @@ channels:
   local:
     enabled: true
     radius: 100
-    # {player} is the interactive nickname, NOT the rank prefix.
-    # Reorder/remove components freely. Always keep {message}.
     format: "{channel_badge} {rank_prefix}{player}{separator}<gray>{message}"
     badge: "<gradient:#f1d374:#f7e08f>[L]</gradient>"
     shortcut-prefix: ""
     no-recipients-message: "<gray><italic>No one is nearby to hear you...</italic>"
-    # Empty = everyone nearby can receive. This is separate from sending permission.
     receive-permission: ""
   global:
     enabled: true
@@ -27,12 +24,6 @@ channels:
     shortcut-prefix: "!"
     receive-permission: ""
 
-# Built-ins: {player_name}, {display_name}, {world}, {uuid}, {rank},
-# {rank_prefix}, {balance}, {playtime}, {ping}, {online}, {max_players},
-# {server_name}, {channel}, {channel_id}, {radius}, {version}.
-# %PlaceholderAPI_values% are resolved for the subject player.
-# Built-in/PAPI values are inserted safely as components, never as new tags.
-# Put dynamic click commands in click.value, not inside a MiniMessage tag.
 chat-components:
   player:
     name-format: "<white>{display_name}</white>"
@@ -51,7 +42,6 @@ chat-components:
         - ""
         - "<aqua>Click to send a private message"
     click:
-      # NONE, SUGGEST_COMMAND, RUN_COMMAND, OPEN_URL, COPY_TO_CLIPBOARD.
       action: SUGGEST_COMMAND
       value: "/msg {player_name} "
   channel:
@@ -73,11 +63,7 @@ chat-components:
       value: "/msg {player_name} "
 
 formatting:
-  # Players need plexonchats.formatting for colors/gradients.
-  # Advanced click/hover tags require this option AND .formatting.advanced.
   allow-advanced-player-tags: false
-  # PAPI/Vault strings use legacy colors (&, §, &#RRGGBB, &x...).
-  # They cannot introduce MiniMessage commands or new placeholders.
 
 chat:
   max-message-length: 512
@@ -89,31 +75,22 @@ private-messages:
   enabled: true
   sent-format: "<gray>[To] {target}<dark_gray> » <white>{message}"
   received-format: "<gray>[From] {sender}<dark_gray> » <white>{message}"
-  # PMs are NEVER forwarded to Discord. Only the actual recipient is notified.
 
-# DEFAULT preserves the native/previous plugin message.
 connection-messages:
-  # Do not reveal a player whose message was already suppressed by another plugin.
   respect-hidden: true
-  # Only applies in CUSTOM mode. This permission is NOT granted to ops by default.
   silent-permission: "plexonchats.connection.silent"
   join:
-    # DEFAULT, CUSTOM or HIDDEN. CUSTOM uses the formats below.
     mode: DEFAULT
     format: "<dark_gray>[<green>+</green>]</dark_gray> {player} <gray>joined <dark_gray>• <gray>{online}/{max_players}"
-    # Empty = use the regular join format. Supports the same placeholders.
     first-join-format: ""
   quit:
     mode: DEFAULT
     format: "<dark_gray>[<red>−</red>]</dark_gray> {player} <gray>left <dark_gray>• <gray>{online}/{max_players}"
-  # {player} is interactive. {online} reflects the count after joining/leaving.
-  # Other built-ins and PlaceholderAPI values use the connecting player.
 
 mentions:
   enabled: true
   format: "<gradient:#00e6ff:#00ffac>@{player}</gradient>"
   actionbar-message: "<aqua>{player}</aqua><gray> mentioned you in chat!"
-  # Supports Bukkit names, namespaced keys, or NONE.
   sound: BLOCK_NOTE_BLOCK_PLING
   sound-volume: 1.0
   sound-pitch: 1.5
@@ -121,7 +98,6 @@ mentions:
 item-display:
   enabled: true
   triggers: ["[item]", "@hand"]
-  # {item_name} preserves the custom item's colors; {amount}, {material} supported.
   format: "<gradient:#ffd66b:#ffe58f>✦</gradient> {item_name} <gray>×{amount}"
   empty-hand-message: "<gray><italic>[Empty Hand]</italic></gray>"
   hover-item: true
@@ -132,18 +108,11 @@ item-display:
     title: "<gradient:#ffd66b:#ffe58f>Hand Item Preview</gradient>"
 
 preferences:
-  # Channel, mention, tip and PM preferences survive reconnects/restarts.
-  # Disk writes are atomic and run off-thread; saves also flush on shutdown.
   save-interval-seconds: 60
 
-# GUI slots are zero-based. rows supports 1–6 (9–54 slots).
-# Candidate validation rejects invalid materials/actions, duplicate slots and
-# out-of-range items before activation; the runtime reader also fails safely.
-# Remove any button, or add custom ones. {} means no buttons.
-# Actions: LOCAL, GLOBAL, TOGGLE_MENTIONS, TOGGLE_TIPS, TOGGLE_PRIVATE_MESSAGES,
-# OPEN_ADMIN, OPEN_CREATOR, OPEN_MAIN, RELOAD, TOGGLE_AUTO_MESSAGES,
-# PREVIEW_FORMAT, PLAYER_COMMAND, MESSAGE, LINK, CLOSE, NONE.
-# PLAYER_COMMAND runs with the clicking player's permissions, never as console.
+# GUI slots are zero-based. Actions include the normal player/admin actions plus:
+# OPEN_CHAT_EVENTS, TOGGLE_CHAT_EVENTS, PAUSE_CHAT_EVENTS, RESUME_CHAT_EVENTS,
+# START_RANDOM_CHAT_EVENT and STOP_CHAT_EVENT.
 gui:
   enabled: true
   title: "<gradient:#88beff:#b9d8ff><bold>PlexonChats</bold></gradient>"
@@ -153,7 +122,6 @@ gui:
   filler:
     enabled: true
     material: GRAY_STAINED_GLASS_PANE
-    # BORDER or ALL
     mode: BORDER
     name: " "
   state:
@@ -172,11 +140,7 @@ gui:
       disabled-material: GRAY_DYE
       glow-when-active: true
       name: "<gradient:#f1d374:#f7e08f><bold>Local chat</bold></gradient>"
-      lore:
-        - "<gray>Talk to nearby players in your world."
-        - "<gray>Range <dark_gray>› <white>{radius} blocks"
-        - ""
-        - "{state}"
+      lore: ["<gray>Talk to nearby players in your world.", "<gray>Range <dark_gray>› <white>{radius} blocks", "", "{state}"]
     global:
       slot: 12
       action: GLOBAL
@@ -185,11 +149,7 @@ gui:
       disabled-material: GRAY_DYE
       glow-when-active: true
       name: "<gradient:#6ea8ff:#88beff><bold>Global chat</bold></gradient>"
-      lore:
-        - "<gray>Talk across the server."
-        - "<gray>Shortcut <dark_gray>› <white>{global_shortcut}"
-        - ""
-        - "{state}"
+      lore: ["<gray>Talk across the server.", "<gray>Shortcut <dark_gray>› <white>{global_shortcut}", "", "{state}"]
     mentions:
       slot: 14
       action: TOGGLE_MENTIONS
@@ -259,6 +219,14 @@ gui:
         material: IRON_CHAIN
         name: "<blue><bold>DiscordSRV</bold></blue>"
         lore: ["<gray>Status <dark_gray>› <white>{discord_status}", "<gray>Configure integrations.discordsrv.", "<gray>Local chat and PMs stay private."]
+      chat-events:
+        slot: 20
+        action: OPEN_CHAT_EVENTS
+        permission: plexonchats.events.manage
+        hide-without-permission: true
+        material: BELL
+        name: "<gold><bold>Chat Events</bold></gold>"
+        lore: ["<gray>Status <dark_gray>› <white>{events_status}", "<gray>Open the event control page."]
       back:
         slot: 22
         action: OPEN_MAIN
@@ -267,6 +235,65 @@ gui:
         lore: []
       close:
         slot: 26
+        action: CLOSE
+        material: BARRIER
+        name: "<red>Close"
+        lore: []
+
+  events:
+    title: "<gradient:#ffd66b:#ff9f43><bold>Chat Events</bold></gradient>"
+    rows: 3
+    items:
+      master:
+        slot: 10
+        action: TOGGLE_CHAT_EVENTS
+        permission: plexonchats.events.manage
+        material: LEVER
+        active-material: LIME_CONCRETE
+        name: "<gold><bold>Master toggle</bold></gold>"
+        lore: ["<gray>Persistent feature state.", "<gray>Status <dark_gray>› <white>{events_status}", "", "{state}"]
+      status:
+        slot: 12
+        action: NONE
+        material: CLOCK
+        name: "<aqua><bold>Runtime status</bold></aqua>"
+        lore: ["<gray>Scheduler <dark_gray>› <white>{events_scheduler}", "<gray>Active <dark_gray>› <white>{events_active}", "<gray>Definitions <dark_gray>› <white>{events_count}"]
+      pause:
+        slot: 14
+        action: PAUSE_CHAT_EVENTS
+        material: REDSTONE_TORCH
+        disabled-material: GRAY_DYE
+        name: "<yellow><bold>Pause scheduling</bold></yellow>"
+        lore: ["<gray>Runtime-only pause. Active events continue.", "", "{state}"]
+      resume:
+        slot: 16
+        action: RESUME_CHAT_EVENTS
+        material: LIME_DYE
+        disabled-material: GRAY_DYE
+        name: "<green><bold>Resume scheduling</bold></green>"
+        lore: ["<gray>Resume automatic event selection.", "", "{state}"]
+      start:
+        slot: 19
+        action: START_RANDOM_CHAT_EVENT
+        material: FIREWORK_ROCKET
+        disabled-material: GRAY_DYE
+        name: "<aqua><bold>Start random event</bold></aqua>"
+        lore: ["<gray>Start one eligible playable event now.", "", "{state}"]
+      stop:
+        slot: 21
+        action: STOP_CHAT_EVENT
+        material: BARRIER
+        disabled-material: GRAY_DYE
+        name: "<red><bold>Stop active event</bold></red>"
+        lore: ["<gray>Cancel with no winner and no reward.", "", "{state}"]
+      back:
+        slot: 23
+        action: OPEN_ADMIN
+        material: ARROW
+        name: "<white>Back"
+        lore: []
+      close:
+        slot: 25
         action: CLOSE
         material: BARRIER
         name: "<red>Close"
@@ -316,9 +343,7 @@ gui:
         name: "<red>Close"
         lore: []
 
-# Each group has its own interval/rotation. A single lightweight timer services
-# all groups. Schedules restart from their initial delay after a reload/restart.
-# Routine Phase 2 defaults use CHAT/TITLE only; legacy ACTION_BAR remains readable
+# Scheduled informational messages remain a separate subsystem from Chat Events.
 auto-messages:
   enabled: true
   groups:
@@ -326,10 +351,8 @@ auto-messages:
       enabled: true
       interval-seconds: 300
       initial-delay-seconds: 60
-      # SEQUENTIAL or SHUFFLE (a shuffled bag, no immediate cycle repeats).
       order: SHUFFLE
       min-online: 1
-      # If true, players can opt out using the tips button.
       respect-tip-preference: true
       permission: ""
       worlds: []
@@ -337,8 +360,6 @@ auto-messages:
       sound: BLOCK_NOTE_BLOCK_PLING
       sound-volume: 1.0
       sound-pitch: 1.1
-      # Must ALSO enable integrations.discordsrv.forward-announcements.
-      # Forwarding is blocked for groups with world/permission/opt-out filters.
       forward-to-discord: false
       messages:
         - id: chat-menu
@@ -350,12 +371,10 @@ auto-messages:
             - ""
         - id: global-chat
           delivery: CHAT
-          lines:
-            - "<gold>✦</gold> <gray>Start a message with <white>!</white> to talk in global chat."
+          lines: ["<gold>✦</gold> <gray>Start a message with <white>!</white> to talk in global chat."]
         - id: item-showcase
           delivery: CHAT
-          lines:
-            - "<gold>✦</gold> <gray>Share your held item by typing <yellow>[item]</yellow> in chat."
+          lines: ["<gold>✦</gold> <gray>Share your held item by typing <yellow>[item]</yellow> in chat."]
     announcements:
       enabled: true
       interval-seconds: 900
@@ -371,32 +390,151 @@ auto-messages:
       messages:
         - id: welcome
           delivery: CHAT
-          lines:
-            - "<gradient:#6ea8ff:#88d8ff><bold>PLEXON</bold></gradient> <dark_gray>» <gray>Be kind, enjoy the server, and help new players feel welcome."
-        # TITLE uses line 1 as the title and line 2 as the subtitle.
-        # - id: event
-        #   delivery: TITLE
-        #   fade-in-seconds: 0.5
-        #   stay-seconds: 3.0
-        #   fade-out-seconds: 0.5
-        #   lines: ["<aqua>Server event", "<gray>Read chat for details!"]
+          lines: ["<gradient:#6ea8ff:#88d8ff><bold>PLEXON</bold></gradient> <dark_gray>» <gray>Be kind, enjoy the server, and help new players feel welcome."]
+
+# One lightweight coordinator services all definitions. Only one run may be active.
+chat-events:
+  enabled: true
+  scheduler:
+    enabled: true
+    initial-delay-seconds: 180
+    min-interval-seconds: 600
+    max-interval-seconds: 1200
+    min-online: 1
+    avoid-immediate-repeat: true
+    pause-when-empty: true
+  defaults:
+    duration-seconds: 30
+    reveal-answer-on-timeout: true
+    min-online: 1
+    permission: ""
+    worlds: []
+    excluded-worlds: []
+    accepted-channels: [LOCAL, GLOBAL]
+    matching:
+      case-sensitive: false
+      trim: true
+      collapse-whitespace: true
+      unicode-normalization: NFKC
+      ignore-diacritics: false
+  reward-profiles:
+    basic:
+      economy:
+        enabled: true
+        amount: 500.0
+      plexonkeys:
+        enabled: false
+        tier: BASIC
+        amount: 0
+      console-commands: []
+    rare:
+      economy:
+        enabled: true
+        amount: 2500.0
+      plexonkeys:
+        enabled: true
+        tier: RARE
+        amount: 1
+      console-commands: []
+    epic:
+      economy:
+        enabled: true
+        amount: 5000.0
+      plexonkeys:
+        enabled: true
+        tier: EPIC
+        amount: 1
+      console-commands: []
+  events:
+    bingo:
+      enabled: true
+      type: TYPE
+      weight: 12
+      cooldown-seconds: 1800
+      reward-profile: basic
+      values: ["bingo", "plexon", "diamond", "redstone"]
+      prompt: "<gold><bold>CHAT EVENT</bold></gold> <dark_gray>» <gray>Type <yellow>\"{value}\"</yellow> first!"
+    unscramble:
+      enabled: true
+      type: UNSCRAMBLE
+      weight: 10
+      cooldown-seconds: 1800
+      reward-profile: rare
+      words: ["diamond", "redstone", "village", "elytra", "netherite"]
+      prompt: "<gold><bold>CHAT EVENT</bold></gold> <dark_gray>» <gray>Unscramble <aqua>{scrambled}</aqua>!"
+    math-normal:
+      enabled: true
+      type: MATH
+      weight: 10
+      cooldown-seconds: 1200
+      reward-profile: rare
+      operations: [ADD, SUBTRACT, MULTIPLY]
+      min-operand: 2
+      max-operand: 25
+      allow-negative-result: false
+      prompt: "<gold><bold>CHAT EVENT</bold></gold> <dark_gray>» <gray>What's <aqua>{expression}</aqua>?"
+    math-hard:
+      enabled: true
+      type: MATH
+      weight: 4
+      cooldown-seconds: 3600
+      reward-profile: epic
+      operations: [MULTIPLY, DIVIDE]
+      min-operand: 8
+      max-operand: 75
+      allow-negative-result: false
+      prompt: "<gold><bold>CHAT EVENT</bold></gold> <dark_gray>» <gray>Solve <red>{expression}</red>!"
+    trivia:
+      enabled: true
+      type: TRIVIA
+      weight: 6
+      cooldown-seconds: 2400
+      reward-profile: rare
+      entries:
+        - question: "Which dimension contains End Cities?"
+          accepted-answers: ["the end", "end"]
+        - question: "Which ore is required to craft an enchanting table?"
+          accepted-answers: ["diamond", "diamonds"]
+      prompt: "<gold><bold>CHAT EVENT</bold></gold> <dark_gray>» <gray>{question}"
+    reverse:
+      enabled: true
+      type: REVERSE
+      weight: 6
+      cooldown-seconds: 1800
+      reward-profile: basic
+      values: ["craft", "redstone", "plexon", "diamond"]
+      prompt: "<gold><bold>CHAT EVENT</bold></gold> <dark_gray>» <gray>Reverse <aqua>{value}</aqua>!"
+  sounds:
+    start:
+      sound: BLOCK_NOTE_BLOCK_PLING
+      volume: 1.0
+      pitch: 1.2
+    win:
+      sound: UI_TOAST_CHALLENGE_COMPLETE
+      volume: 1.0
+      pitch: 1.0
+    timeout:
+      sound: BLOCK_NOTE_BLOCK_BASS
+      volume: 1.0
+      pitch: 1.0
+  messages:
+    prefix: "<bold><gradient:#ffd66b:#ff9f43>Chat Event</gradient></bold> <dark_gray>» "
+    started: "{prompt}"
+    winner: "<green><bold>{winner}</bold></green> <gray>answered correctly in <white>{elapsed}</white>! <gray>Reward: {reward_summary}"
+    timed-out: "<yellow>Time's up!</yellow> <gray>The answer was <white>{answer}</white>."
+    cancelled: "<gray>The current chat event was cancelled."
+    no-events: "<yellow>No eligible chat events are currently available."
+    already-active: "<yellow>A chat event is already active: <white>{event_id}</white>."
+    disabled: "<yellow>Chat Events are disabled."
 
 integrations:
   discordsrv:
-    # Install/configure DiscordSRV separately. No bot tokens belong here.
-    # Tested API: DiscordSRV 1.30.5 (1.x). Optional; absent = chat still works.
     enabled: false
-    # A GAME channel key in DiscordSRV's Channels map, NOT a Discord ID.
-    # DiscordSRV example: Channels: {"global": "YOUR_DISCORD_CHANNEL_ID"}
     game-channel: "global"
     minecraft-to-discord: true
     discord-to-minecraft: true
-    # {message} is DiscordSRV's already formatted, filtered Minecraft component.
-    # Other wrapper values: {discord_name}, {discord_user}, {discord_channel}.
     incoming-format: "{message}"
-    # Only players with this permission see Discord messages; empty = everyone.
     receive-permission: ""
-    # Prevent mass mentions when player/global announcements are forwarded.
     suppress-mentions: true
     forward-announcements: false
 
@@ -433,4 +571,4 @@ messages:
   auto-sent: "<green>Sent {group} to {count} eligible player(s)."
   auto-none: "<yellow>No eligible recipients or enabled messages in {group}."
   auto-status: "<gray>Scheduler <dark_gray>› <white>{state}</white> <gray>Groups <dark_gray>› <white>{groups}"
-  status: "<gray>PlexonChats {version} <dark_gray>• <gray>DiscordSRV: <white>{discord}</white> <dark_gray>• <gray>Auto-messages: <white>{scheduler}"
+  status: "<gray>PlexonChats {version} <dark_gray>• <gray>DiscordSRV: <white>{discord}</white> <dark_gray>• <gray>Auto-messages: <white>{scheduler}</white> <dark_gray>• <gray>Chat Events: <white>{events}</white>"
