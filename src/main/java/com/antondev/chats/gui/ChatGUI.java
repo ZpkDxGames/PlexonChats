@@ -96,10 +96,14 @@ public final class ChatGUI {
         Map<String, Component> context = new LinkedHashMap<>();
         context.put("state", config.formatMessage(config.string("gui.state." + stateKey, stateKey)));
         if (plugin.getChatEvents() != null) {
-            context.put("events_status", Component.text(plugin.getChatEvents().status()));
-            context.put("events_active", Component.text(plugin.getChatEvents().activeId()));
-            context.put("events_count", Component.text(Integer.toString(plugin.getChatEvents().configuredCount())));
-            context.put("events_scheduler", Component.text(plugin.getChatEvents().schedulerEnabled() ? (plugin.getChatEvents().paused() ? "PAUSED" : "RUNNING") : "DISABLED"));
+            var events = plugin.getChatEvents();
+            context.put("events_status", Component.text(events.status()));
+            context.put("events_active", Component.text(events.activeId()));
+            context.put("events_count", Component.text(Integer.toString(events.configuredCount())));
+            context.put("events_scheduler", Component.text(events.schedulerEnabled() ? (events.paused() ? "PAUSED" : "RUNNING") : "DISABLED"));
+            context.put("events_discord", Component.text(events.discordEventsEnabled() ? "ENABLED" : "DISABLED"));
+            context.put("events_discord_transport", Component.text(events.discordTransport() + "/" + events.discordTransportStatus()));
+            context.put("events_discord_message", Component.text(events.discordMessageState()));
         }
         String name = active && !button.activeName().isEmpty() ? button.activeName() : button.name();
         var lore = active && !button.activeLore().isEmpty() ? button.activeLore() : button.lore();
@@ -119,6 +123,7 @@ public final class ChatGUI {
         buttons.put(20, dynamic("definitions", 20, GuiAction.OPEN_EVENT_LIST, Material.BOOKSHELF, "Event browser", ""));
         buttons.put(22, dynamic("bingo", 22, GuiAction.OPEN_EVENT_BINGO, Material.MAP, "Bingo", ""));
         buttons.put(24, dynamic("rewards", 24, GuiAction.OPEN_EVENT_REWARDS, Material.GOLD_INGOT, "Rewards", ""));
+        buttons.put(28, dynamic("discord-sync", 28, GuiAction.NONE, Material.REPEATER, "Discord event sync", ""));
         buttons.put(30, dynamic("stats", 30, GuiAction.OPEN_EVENT_STATS, Material.PLAYER_HEAD, "Statistics", ""));
         buttons.put(32, dynamic("reload", 32, GuiAction.RELOAD, Material.REPEATER, "Reload", ""));
         buttons.put(38, dynamic("back", 38, player.hasPermission("plexonchats.manage") ? GuiAction.OPEN_ADMIN : GuiAction.OPEN_MAIN, Material.ARROW, "Back", ""));
@@ -144,6 +149,15 @@ public final class ChatGUI {
         putDynamic(player, inventory, buttons.get(20), List.of(Component.text(events.configuredCount() + " configured definitions", NamedTextColor.GRAY), Component.text("Browse, inspect, preview and start events.", NamedTextColor.GRAY)));
         putDynamic(player, inventory, buttons.get(22), List.of(text("Phase", events.bingoPhase()), text("Draws", Integer.toString(events.bingoDrawCount())), text("Last call", events.bingoLastDraw())));
         putDynamic(player, inventory, buttons.get(24), List.of(Component.text("Inspect reward profiles and usage.", NamedTextColor.GRAY)));
+        putDynamic(player, inventory, buttons.get(28), List.of(
+                text("Enabled", events.discordEventsEnabled() ? "YES" : "NO"),
+                text("Transport", events.discordTransport()),
+                text("Transport status", events.discordTransportStatus()),
+                text("Channel", events.discordChannelConfigured() ? "CONFIGURED" : "NOT CONFIGURED"),
+                text("Participation", events.discordParticipation()),
+                text("Message", events.discordMessageState()),
+                text("Pending update", events.discordPendingUpdate() ? "YES" : "NO"),
+                Component.empty(), Component.text("Webhook credentials are intentionally hidden.", NamedTextColor.DARK_GRAY)));
         putDynamic(player, inventory, buttons.get(30), List.of(text("Total wins", Long.toString(stats.totalRecordedWins())), text("Cached players", Integer.toString(stats.cachedPlayerCount()))));
         putDynamic(player, inventory, buttons.get(32), List.of(Component.text("Transactional config reload.", NamedTextColor.GRAY)));
         putDynamic(player, inventory, buttons.get(38), List.of()); putDynamic(player, inventory, buttons.get(42), List.of());
@@ -203,7 +217,9 @@ public final class ChatGUI {
             lore.add(text("First draw", definition.bingo().firstDrawDelaySeconds() + "s"));
             lore.add(text("Draw interval", definition.bingo().drawIntervalSeconds() + "s"));
             lore.add(text("Patterns", definition.bingo().winPatterns().stream().map(value -> value.displayName()).sorted().toList().toString()));
-            lore.add(text("Discord webhook", definition.bingo().discord().enabled() ? "ENABLED" : "DISABLED"));
+            lore.add(text("Discord sync", plugin.getChatEvents().bingoDiscordEnabled() ? plugin.getChatEvents().discordTransport() : "DISABLED"));
+        } else {
+            lore.add(text("Discord sync", plugin.getChatEvents().discordEventsEnabled() ? plugin.getChatEvents().discordTransport() : "DISABLED"));
         }
         inventory.setItem(13, item(typeMaterial(definition.type()), Component.text(definition.name(), NamedTextColor.AQUA, TextDecoration.BOLD), lore, definition.enabled()));
         putDynamic(player, inventory, buttons.get(11), List.of(Component.text("Render a safe private preview.", NamedTextColor.GRAY)));
@@ -264,7 +280,10 @@ public final class ChatGUI {
         status.add(text("Phase", events.bingoPhase())); status.add(text("Run", active ? run.toString() : "-")); status.add(text("Last draw", events.bingoLastDraw()));
         status.add(text("Draw count", Integer.toString(events.bingoDrawCount()))); status.add(text("Remaining pool", Integer.toString(events.bingoRemainingCount())));
         status.add(text("Next draw", events.bingoNextDrawMillis() < 0 ? "-" : String.format(Locale.ROOT, "%.1fs", events.bingoNextDrawMillis() / 1000.0)));
-        status.add(text("Patterns", events.bingoPatterns())); status.add(text("Reward", events.bingoRewardProfile())); status.add(text("Discord webhook", events.bingoDiscordEnabled() ? "ENABLED" : "DISABLED"));
+        status.add(text("Patterns", events.bingoPatterns())); status.add(text("Reward", events.bingoRewardProfile()));
+        status.add(text("Discord sync", events.bingoDiscordEnabled() ? "ENABLED" : "DISABLED"));
+        status.add(text("Discord transport", events.discordTransport() + "/" + events.discordTransportStatus()));
+        status.add(text("Discord message", events.discordMessageState()));
         if (active) { status.add(Component.empty()); status.add(Component.text("Shared board preview", NamedTextColor.AQUA)); for (String line : events.bingoBoardPreview()) status.add(Component.text(line, NamedTextColor.GRAY)); }
         inventory.setItem(13, item(Material.BELL, Component.text("Bingo status", NamedTextColor.GOLD, TextDecoration.BOLD), status, active));
         if (buttons.containsKey(20)) putDynamic(player, inventory, buttons.get(20), List.of(Component.text("Show the authoritative shared chat board.", NamedTextColor.GRAY)));
