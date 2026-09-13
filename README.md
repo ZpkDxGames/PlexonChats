@@ -1,18 +1,18 @@
 # PlexonChats
 
-PlexonChats **4.0.0** is the stable Plexon communication plugin for Paper 26.2 / Java 25. It owns LOCAL/GLOBAL public chat, private messages, safe MiniMessage presentation, GUI/preferences, scheduled messages, persistent Chat Events, joinable participant-owned Bingo, diagnostics, optional DiscordSRV chat bridging, and stateful Discord Chat Event embeds.
+PlexonChats **4.0.1** is the stable Plexon communication plugin for Paper 26.2 / Java 25. It owns LOCAL/GLOBAL public chat, private messages, safe MiniMessage presentation, GUI/preferences, scheduled messages, persistent Chat Events, joinable participant-owned Bingo, diagnostics, optional DiscordSRV chat bridging, and stateful Discord Chat Event embeds.
 
 ## Chat Events
 
 Chat Events use one bounded coordinator and allow at most one globally reserved/active competition at a time. Built-in types remain `TYPE`, `UNSCRAMBLE`, `MATH`, `TRIVIA`, `REVERSE`, and `BINGO`. Standard events retain the exact-once winner/reward/statistics boundary introduced in 3.x.
 
-Gameplay definitions now live in `plugins/PlexonChats/data.yml`. Presentation, reward profile bodies, and integration credentials remain in `config.yml`. The master `chat-events.enabled` switch remains in `config.yml`; scheduler/randomizer/minigame gameplay values are read from `data.yml`.
+Gameplay definitions live in `plugins/PlexonChats/data.yml`. Presentation, reward profile bodies, and integration credentials remain in `config.yml`. The master `chat-events.enabled` switch remains in `config.yml`; scheduler/randomizer/minigame gameplay values are read from `data.yml`.
 
 Persistent wins remain in `plugins/PlexonChats/chat-events.db`, with unique run IDs protecting against duplicate completion records.
 
-## Bingo 4.0
+## Bingo 4.0.1
 
-Bingo is no longer a shared automatically-marked board. Every run uses an explicit lobby followed by participant-owned cards:
+Bingo remains the participant-owned manual-mark game introduced in 4.0.0. Every run uses an explicit lobby followed by stable personal cards:
 
 ```text
 IDLE -> LOBBY -> STARTING -> ACTIVE -> WON / TIMED_OUT / CANCELLED
@@ -22,7 +22,11 @@ Scheduled Bingo uses the configured lobby countdown (stock: 60 seconds) and emit
 
 Each participant receives one stable traditional 75-ball card for that run. The B/I/N/G/O ranges are B 1–15, I 16–30, N 31–45, G 46–60, O 61–75. The stock card has 25 numbers and no FREE center.
 
-The server calls numbers globally, but **a draw is not a mark**. A player marks only their own card by clicking a cell. The click is bound to the current run ID. If the number has not been called, state is unchanged and the player receives an action-bar rejection. Successful marks render green without changing table width and without `[]` brackets.
+The server calls numbers globally, but **a draw is not a mark**. A player marks only their own card by clicking a cell. The click is bound to the current run ID. If the number has not been called, state is unchanged and the player receives an action-bar rejection.
+
+Fresh 4.0.1 data renders the card as a true fixed-width `TABLE` using `minecraft:uniform`, four-character cells, aligned box separators, and no width-changing mark decorations. Marked cells use color only; winning cells use color/underline rather than bold. `COMPACT` preserves the 4.0.0 borderless renderer as a compatibility mode. The full board is not reprinted on every draw by default.
+
+Fresh `data.yml` also changes the recommended Bingo call interval from 8 seconds to **5 seconds**. `minigames.bingo-classic.draws.interval-seconds` remains configurable and authoritative. Existing administrator-owned `data.yml` values are not silently replaced during upgrade.
 
 Winning evaluation uses only that participant's manual marked-cell set. Global draw history cannot create a win. The first accepted claim transitions the run once and owns exactly one winner publication, reward execution, and persistent statistic.
 
@@ -48,18 +52,18 @@ Transport modes remain `AUTO`, `DISCORDSRV`, and `WEBHOOK`. Webhook URLs remain 
 
 ## Configuration and migration
 
-`config.yml` remains configuration schema **v10**. PlexonChats 4.0 additionally introduces `data.yml` schema **1** for scheduler/randomizer/minigame gameplay data.
+`config.yml` remains configuration schema **v10**. `data.yml` remains schema **1** for scheduler/randomizer/minigame gameplay data; 4.0.1 does not bump that schema simply to introduce new stock renderer defaults.
 
 On first v4 startup when `data.yml` does not exist, PlexonChats:
 
 1. backs up the current configuration as `config-before-v4-<timestamp>.yml`;
-2. reads compatible v3.6.2 Chat Events gameplay values;
+2. reads compatible pre-v4 Chat Events gameplay values;
 3. creates schema-1 `data.yml`;
 4. preserves administrator-owned enabled flags, weights, cooldowns, durations, minimum-online values, reward references, channels, content pools, math ranges, and compatible Bingo timing/pattern values;
-5. adds the new lobby/manual-mark settings from v4 defaults;
+5. adds current lobby/manual-mark settings from bundled defaults;
 6. keeps Discord/webhook secrets in `config.yml`.
 
-If `data.yml` already exists, legacy `config.yml` gameplay values do not overwrite it. Malformed individual minigames are quarantined where safe instead of disabling unrelated chat functionality.
+If `data.yml` already exists, legacy `config.yml` gameplay values do not overwrite it. Existing schema-1 files are not rewritten merely to force 4.0.1's 5-second stock interval or `TABLE` style. A 4.0.0 renderer block without `style` retains compatibility from its existing `show-border` value. Malformed individual minigames are quarantined where safe instead of disabling unrelated chat functionality.
 
 See [Configuration](docs/CONFIGURATION.md) and [Upgrading](docs/UPGRADING.md).
 
@@ -123,13 +127,13 @@ mvn --batch-mode clean verify
 
 Stable release assets:
 
-- `PlexonChats-4.0.0.jar`
+- `PlexonChats-4.0.1.jar`
 - `SHA256SUMS.txt`
 - `TEST_SUMMARY.txt`
 - `PROVENANCE.txt`
 
-Authoritative rollback baseline: `v3.6.2` / `2099d8b50d267b9a430bc1ef34a18415b020318c`.
+Authoritative baseline and rollback: `v4.0.0` / `657d27766bce60235bc50602b4dd4d14b9e6998c`.
 
-Source/release verification does not imply live-server certification. Until real PlexonCraft runtime evidence is collected, release provenance records `runtime_certification=FOLLOW_UP_REQUIRED`.
+Source/release verification does not imply live-server visual certification. Until the table is checked on a real Paper 26.2 client at representative GUI scales, release provenance records `runtime_certification=FOLLOW_UP_REQUIRED`.
 
 Created by **Tonim / ZpkDxGames**.
