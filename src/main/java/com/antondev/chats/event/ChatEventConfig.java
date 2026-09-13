@@ -212,6 +212,7 @@ public record ChatEventConfig(
         ConfigurationSection render = section == null ? null : section.getConfigurationSection("render");
         BingoRender baseRender = base.render();
         BingoRender renderSettings = new BingoRender(
+                renderStyle(render, baseRender),
                 string(render, "font", baseRender.font()),
                 integer(render, "left-padding", baseRender.leftPadding()),
                 integer(render, "cell-width", baseRender.cellWidth()),
@@ -235,6 +236,17 @@ public record ChatEventConfig(
         boolean enabled = section == null ? bool(fallback, "enabled", true) : section.getBoolean("enabled", true);
         boolean freeCenter = section != null && section.getBoolean("card.free-center", false);
         return new BingoSettings(enabled, firstDelay, interval, Set.copyOf(patterns), lobbySettings, freeCenter, renderSettings, discord, Map.copyOf(messages));
+    }
+
+    private static BingoRenderStyle renderStyle(ConfigurationSection render, BingoRender fallback) {
+        if (render == null) return fallback.style();
+        if (render.contains("style")) {
+            String raw = render.getString("style", fallback.style().name());
+            try { return BingoRenderStyle.valueOf(raw.toUpperCase(Locale.ROOT)); }
+            catch (IllegalArgumentException ex) { throw new IllegalArgumentException("Unknown Bingo render style: " + raw, ex); }
+        }
+        if (render.contains("show-border")) return render.getBoolean("show-border") ? BingoRenderStyle.TABLE : BingoRenderStyle.COMPACT;
+        return fallback.style();
     }
 
     private static boolean value(ConfigurationSection section, ConfigurationSection fallback, String path, boolean defaultValue) {
@@ -301,7 +313,8 @@ public record ChatEventConfig(
                              boolean allowLateJoin, boolean requireOnlineAtStart, String disconnectPolicy) {
         public BingoLobby { remindersSeconds = List.copyOf(remindersSeconds); }
     }
-    public record BingoRender(String font, int leftPadding, int cellWidth, int columnGap, boolean showBorder,
+    public enum BingoRenderStyle { TABLE, COMPACT }
+    public record BingoRender(BingoRenderStyle style, String font, int leftPadding, int cellWidth, int columnGap, boolean showBorder,
                               boolean showLastCall, boolean showDrawCount, boolean onJoin, boolean onStart,
                               boolean afterSuccessfulMark, boolean onEveryDraw) { }
     public record BingoSettings(boolean enabled, int firstDrawDelaySeconds, int drawIntervalSeconds,
@@ -313,9 +326,9 @@ public record ChatEventConfig(
         }
         public List<String> message(String key) { return messages.getOrDefault(key, List.of()); }
         public static BingoSettings defaults() {
-            return new BingoSettings(true, 5, 8, Set.of(BingoPattern.ROW, BingoPattern.COLUMN, BingoPattern.DIAGONAL),
+            return new BingoSettings(true, 5, 5, Set.of(BingoPattern.ROW, BingoPattern.COLUMN, BingoPattern.DIAGONAL),
                     new BingoLobby(60, List.of(60, 30, 15, 5), 2, 1, 15, 5, false, true, "KEEP"), false,
-                    new BingoRender("minecraft:uniform", 3, 4, 1, false, true, true, true, true, true, false),
+                    new BingoRender(BingoRenderStyle.TABLE, "minecraft:uniform", 2, 4, 0, true, true, true, true, true, true, false),
                     new BingoDiscord(false, "", "PlexonChats Bingo", true, true, true),
                     Map.of(
                             "lobby", List.of("{separator}", "<gold><bold>✦ BINGO • STARTS IN {lobby_time}</bold></gold>", "", "<gray>Reward:</gray> <gold>{reward}</gold>", "<click:run_command:'/bingo join'><hover:show_text:'<gray>Join this Bingo round</gray>'><aqua><bold>[ JOIN BINGO ]</bold></aqua></hover></click>", "", "<gray>Joined:</gray> <white>{participant_count}</white>", "{separator}"),
