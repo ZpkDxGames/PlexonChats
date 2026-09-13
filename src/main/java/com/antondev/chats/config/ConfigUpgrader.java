@@ -328,7 +328,7 @@ public final class ConfigUpgrader {
                         "furnace", "mending", "fortune", "bedrock", "deepslate", "glowstone", "quartz", "minecart", "plexon"));
 
         String triviaPath = "chat-events.events.trivia.entries";
-        List<Map<String, Object>> existingTrivia = current.getMapList(triviaPath);
+        List<Map<?, ?>> existingTrivia = current.getMapList(triviaPath);
         if (existingTrivia.size() == 2
                 && "Which dimension contains End Cities?".equals(existingTrivia.get(0).get("question"))
                 && "Which ore is required to craft an enchanting table?".equals(existingTrivia.get(1).get("question"))) {
