@@ -1,5 +1,27 @@
 # Changelog
 
+## 3.6.1 — compact interactive Chat Event feedback
+
+### Changed
+
+- Reworked stock Chat Event cards to remove repeated `CHAT EVENT`, event-name, `Reward:` and `Time:` labels and give the actual challenge higher visual priority.
+- Added compact semantic state symbols: `✦` active, `✔` complete, `⌛` expired, `✕` cancelled, `◆` reward, `⏱` timer and `♛` winner.
+- Reward/timer metadata now carries Adventure hover information instead of additional explanatory lines.
+- Winner total/per-type statistics moved into hover text on the winner component, reducing visible card noise while retaining the persistent statistics data.
+- Successful standard events now show the canonical answer directly in the completion card.
+- Stock TYPE, UNSCRAMBLE, MATH and REVERSE prompts were shortened to avoid repeating the event type in the challenge line.
+- Bingo start, draw and invalid-claim messages were tightened while preserving the accepted shared authoritative board, automatic marks and first-valid-claim mechanics.
+
+### Migration / compatibility
+
+- Configuration schema advances from v8 to **v9**.
+- The v8 → v9 migrator updates only exact known stock presentation strings; administrator-customized Chat Event cards and prompts remain untouched.
+- Existing multi-generation v6/v7/v8 migration behavior remains intact, including preservation of administrator-owned event definitions and Discord webhook secrets.
+- Upgrades continue to write a pre-migration backup, now named `config-before-v9-<timestamp>.yml`.
+- Event authority, timing, answers, rewards, statistics, Discord one-message lifecycle, normal chat routing and Bingo gameplay are unchanged.
+- Build/release provenance is anchored to stable `v3.6.0` / `e3bc1f04483ea235b947bbed2c5e2c99e6df8261`.
+- Rollback: `v3.6.0` / `e3bc1f04483ea235b947bbed2c5e2c99e6df8261`.
+
 ## 3.6.0 — Discord Chat Events embed synchronization
 
 ### Added
