@@ -2,6 +2,7 @@ package com.antondev.chats;
 
 import com.antondev.chats.event.ChatEventConfig;
 import com.antondev.chats.event.ChatEventEngine;
+import com.antondev.chats.event.bingo.BingoRenderer;
 import com.antondev.chats.event.bingo.BingoRun;
 import com.antondev.chats.event.discord.BingoDiscordEmbedRenderer;
 import com.antondev.chats.event.discord.DiscordEventEmbed;
@@ -12,8 +13,10 @@ import org.junit.jupiter.api.Test;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import java.util.random.RandomGenerator;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -47,8 +50,18 @@ class DiscordEventRendererTest extends PluginTestBase {
         BingoRun run = new BingoRun(UUID.randomUUID(), definition, 1, 1_000_000, 1, 1,
                 definition.bingo().winPatterns(), RandomGenerator.getDefault());
         assertTrue(run.activate());
-        Integer first = run.draw(1);
-        assertNotNull(first);
+
+        Set<Integer> boardValues = java.util.stream.IntStream.range(0, 25)
+                .map(run.board()::numberAt).boxed().collect(Collectors.toSet());
+        Integer drawnBoardValue = null;
+        int calls = 0;
+        for (long now = 1; now <= 75 && drawnBoardValue == null; now++) {
+            Integer drawn = run.draw(now);
+            assertNotNull(drawn);
+            calls++;
+            if (boardValues.contains(drawn)) drawnBoardValue = drawn;
+        }
+        assertNotNull(drawnBoardValue, "a complete 1-75 draw pool must eventually call a value on the 25-cell board");
 
         DiscordEventEmbed live = BingoDiscordEmbedRenderer.live(run, "$5,000 + 1 EPIC key", settings());
         String board = field(live, "Board");
@@ -57,9 +70,10 @@ class DiscordEventRendererTest extends PluginTestBase {
             String value = String.format(Locale.ROOT, "%02d", run.board().numberAt(cell));
             assertTrue(board.contains(value), "Discord board must contain authoritative cell " + cell + "=" + value);
         }
-        assertTrue(board.contains("[" + String.format(Locale.ROOT, "%02d", first) + "]"), "draw state must come from the same BingoRun");
-        assertEquals("1 / 75", field(live, "Draws"));
-        assertFalse(field(live, "Last Call").isBlank());
+        assertTrue(board.contains("[" + String.format(Locale.ROOT, "%02d", drawnBoardValue) + "]"),
+                "drawn board state must come from the same BingoRun");
+        assertEquals(calls + " / 75", field(live, "Draws"));
+        assertEquals(BingoRenderer.label(run.lastDraw()), field(live, "Last Call"));
     }
 
     @Test void bingoWinnerEmbedHighlightsWinningCellsFromAuthoritativeClaim() {
