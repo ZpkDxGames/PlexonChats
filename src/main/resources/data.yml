@@ -125,7 +125,7 @@ minigames:
 
     draws:
       first-call-delay-seconds: 5
-      interval-seconds: 8
+      interval-seconds: 5
       range-min: 1
       range-max: 75
 
@@ -136,11 +136,12 @@ minigames:
       full-house: false
 
     render:
+      style: TABLE
       font: "minecraft:uniform"
-      left-padding: 3
+      left-padding: 2
       cell-width: 4
-      column-gap: 1
-      show-border: false
+      column-gap: 0
+      show-border: true
       show-last-call: true
       show-draw-count: true
       on-join: true
