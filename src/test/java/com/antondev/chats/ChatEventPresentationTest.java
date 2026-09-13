@@ -43,7 +43,7 @@ class ChatEventPresentationTest extends PluginTestBase {
         yaml.set("chat-events.presentation.blank-lines-before", 4);
         assertThrows(IllegalArgumentException.class, () -> ChatEventValidation.validate(yaml.getConfigurationSection("chat-events")));
         yaml.set("chat-events.presentation.blank-lines-before", 1);
-        yaml.set("chat-events.presentation.start", List.of("<color:not-a-color>bad</color>"));
+        yaml.set("chat-events.presentation.start", List.of("<click:run_command:'unterminated>bad</click>"));
         assertThrows(IllegalArgumentException.class, () -> ChatEventValidation.validate(yaml.getConfigurationSection("chat-events")));
     }
 
