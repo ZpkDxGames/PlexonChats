@@ -14,6 +14,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -38,7 +39,48 @@ class DiscordEventPublisherTest extends PluginTestBase {
         }
     }
 
-    @Test void delayedLiveEditCannotOverwriteTerminalStateAndLaterLiveUpdatesAreIgnored() throws Exception {
+    @Test void cancellationAndTimeoutEachEditTheirOriginalMessage() throws Exception {
+        FakeTransport transport = new FakeTransport();
+        try (ChatEventDiscordPublisher publisher = new ChatEventDiscordPublisher(plugin, settings(true), transport)) {
+            UUID cancelled = UUID.randomUUID();
+            publisher.start(cancelled, embed("LIVE CANCEL"));
+            await(() -> "ACTIVE".equals(publisher.messageState(cancelled)));
+            publisher.terminal(cancelled, embed("CANCELLED"));
+            await(() -> "TERMINAL".equals(publisher.messageState(cancelled)));
+
+            UUID timedOut = UUID.randomUUID();
+            publisher.start(timedOut, embed("LIVE TIMEOUT"));
+            await(() -> "ACTIVE".equals(publisher.messageState(timedOut)));
+            publisher.terminal(timedOut, embed("TIMED OUT"));
+            await(() -> "TERMINAL".equals(publisher.messageState(timedOut)));
+
+            assertEquals(2, transport.creates.get());
+            assertEquals(List.of("CANCELLED", "TIMED OUT"), transport.edits.stream().map(value -> value.embed.title()).toList());
+            assertEquals("1001", transport.edits.get(0).ref.messageId());
+            assertEquals("1002", transport.edits.get(1).ref.messageId());
+        }
+    }
+
+    @Test void deletedLiveMessageIsRecreatedOnceAndTerminalUsesReplacement() throws Exception {
+        RecoveringTransport transport = new RecoveringTransport();
+        try (ChatEventDiscordPublisher publisher = new ChatEventDiscordPublisher(plugin, settings(true), transport)) {
+            UUID run = UUID.randomUUID();
+            publisher.start(run, embed("LIVE"));
+            await(() -> "ACTIVE".equals(publisher.messageState(run)));
+
+            publisher.update(run, embed("DRAW AFTER DELETE"));
+            await(() -> transport.creates.get() == 2 && "ACTIVE".equals(publisher.messageState(run)));
+            assertEquals(List.of("LIVE", "DRAW AFTER DELETE"), transport.createdEmbeds.stream().map(DiscordEventEmbed::title).toList());
+
+            publisher.terminal(run, embed("WINNER"));
+            await(() -> "TERMINAL".equals(publisher.messageState(run)));
+            assertEquals(2, transport.creates.get(), "deleted live message may be recreated only once");
+            assertEquals("1002", transport.edits.getLast().ref.messageId(), "terminal edit must target the recreated message");
+            assertEquals("WINNER", transport.edits.getLast().embed.title());
+        }
+    }
+
+    @Test void delayedLiveEditCannotOverwriteWinnerAndLaterLiveUpdatesAreIgnored() throws Exception {
         BlockingTransport transport = new BlockingTransport();
         try (ChatEventDiscordPublisher publisher = new ChatEventDiscordPublisher(plugin, settings(true), transport)) {
             UUID run = UUID.randomUUID();
@@ -54,6 +96,49 @@ class DiscordEventPublisherTest extends PluginTestBase {
             await(() -> "TERMINAL".equals(publisher.messageState(run)));
             assertEquals("WINNER", transport.edits.getLast().embed.title());
             assertFalse(transport.edits.stream().anyMatch(value -> value.embed.title().equals("STALE DRAW")));
+        }
+    }
+
+    @Test void delayedLiveEditCannotOverwriteCancellation() throws Exception {
+        BlockingTransport transport = new BlockingTransport();
+        try (ChatEventDiscordPublisher publisher = new ChatEventDiscordPublisher(plugin, settings(true), transport)) {
+            UUID run = UUID.randomUUID();
+            publisher.start(run, embed("LIVE"));
+            await(() -> "ACTIVE".equals(publisher.messageState(run)));
+            publisher.update(run, embed("DRAW"));
+            await(() -> transport.firstEditStarted != null);
+            publisher.terminal(run, embed("CANCELLED"));
+            publisher.update(run, embed("STALE"));
+            transport.releaseFirstEdit.complete(null);
+
+            await(() -> "TERMINAL".equals(publisher.messageState(run)));
+            assertEquals("CANCELLED", transport.edits.getLast().embed.title());
+            assertFalse(transport.edits.stream().anyMatch(value -> value.embed.title().equals("STALE")));
+        }
+    }
+
+    @Test void callbacksFromOlderRunCannotMutateNewerRunRegistry() throws Exception {
+        BlockingTransport transport = new BlockingTransport();
+        try (ChatEventDiscordPublisher publisher = new ChatEventDiscordPublisher(plugin, settings(true), transport)) {
+            UUID oldRun = UUID.randomUUID();
+            UUID newRun = UUID.randomUUID();
+            publisher.start(oldRun, embed("OLD LIVE"));
+            await(() -> "ACTIVE".equals(publisher.messageState(oldRun)));
+            publisher.update(oldRun, embed("OLD DRAW"));
+            await(() -> transport.firstEditStarted != null);
+
+            publisher.start(newRun, embed("NEW LIVE"));
+            publisher.terminal(oldRun, embed("OLD CANCELLED"));
+            transport.releaseFirstEdit.complete(null);
+
+            await(() -> "TERMINAL".equals(publisher.messageState(oldRun)));
+            await(() -> "ACTIVE".equals(publisher.messageState(newRun)));
+            assertEquals("ACTIVE", publisher.messageState(newRun));
+            assertEquals(2, transport.creates.get());
+            assertEquals("NEW LIVE", transport.createdEmbeds.getLast().title());
+            assertEquals("OLD CANCELLED", transport.edits.stream()
+                    .filter(value -> value.ref.messageId().equals("1001"))
+                    .map(value -> value.embed.title()).toList().getLast());
         }
     }
 
@@ -110,6 +195,7 @@ class DiscordEventPublisherTest extends PluginTestBase {
 
     private static class FakeTransport implements DiscordEventTransport {
         final AtomicInteger creates = new AtomicInteger();
+        final List<DiscordEventEmbed> createdEmbeds = java.util.Collections.synchronizedList(new ArrayList<>());
         final List<Edit> edits = java.util.Collections.synchronizedList(new ArrayList<>());
         volatile boolean failCreate;
 
@@ -118,6 +204,7 @@ class DiscordEventPublisherTest extends PluginTestBase {
         @Override public boolean channelConfigured() { return true; }
         @Override public CompletableFuture<DiscordEventMessageRef> create(DiscordEventEmbed embed) {
             int id = creates.incrementAndGet();
+            createdEmbeds.add(embed);
             if (failCreate) return CompletableFuture.failedFuture(new IllegalStateException("simulated Discord failure"));
             return CompletableFuture.completedFuture(new DiscordEventMessageRef("channel", Integer.toString(1000 + id)));
         }
@@ -126,6 +213,17 @@ class DiscordEventPublisherTest extends PluginTestBase {
             return CompletableFuture.completedFuture(null);
         }
         @Override public void close() { }
+    }
+
+    private static final class RecoveringTransport extends FakeTransport {
+        private final AtomicBoolean failFirstEdit = new AtomicBoolean(true);
+
+        @Override public CompletableFuture<Void> edit(DiscordEventMessageRef message, DiscordEventEmbed embed) {
+            if (failFirstEdit.compareAndSet(true, false)) {
+                return CompletableFuture.failedFuture(new IllegalStateException("message deleted"));
+            }
+            return super.edit(message, embed);
+        }
     }
 
     private static final class BlockingTransport extends FakeTransport {
