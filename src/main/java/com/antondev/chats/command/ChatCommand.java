@@ -116,6 +116,13 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
         diagnostic(sender, "Economy rewards", events.economyState());
         diagnostic(sender, "PlexonKeys rewards", events.keysState());
         diagnostic(sender, "Recent Chat Events failure", events.recentFailure());
+        diagnostic(sender, "Discord Event Sync", events.discordEventsEnabled() ? "ENABLED" : "DISABLED");
+        diagnostic(sender, "Discord Event Transport", events.discordTransport());
+        diagnostic(sender, "Discord Event Transport Status", events.discordTransportStatus());
+        diagnostic(sender, "Discord Event Channel", events.discordChannelConfigured() ? "CONFIGURED" : "NOT CONFIGURED");
+        diagnostic(sender, "Discord Event Participation", events.discordParticipation());
+        diagnostic(sender, "Discord Event Message", events.discordMessageState());
+        diagnostic(sender, "Discord Event Pending Update", events.discordPendingUpdate() ? "YES" : "NO");
         diagnostic(sender, "Chat Events DB", stats.state().name());
         diagnostic(sender, "Chat Events DB file", stats.file().toString());
         diagnostic(sender, "Chat Events DB schema", String.valueOf(stats.schemaVersion()));
@@ -133,7 +140,7 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
         diagnostic(sender, "Bingo remaining pool", String.valueOf(events.bingoRemainingCount()));
         diagnostic(sender, "Bingo next draw", events.bingoNextDrawMillis() < 0 ? "-" : events.bingoNextDrawMillis() + "ms");
         diagnostic(sender, "Bingo patterns", events.bingoPatterns());
-        diagnostic(sender, "Bingo Discord webhook", events.bingoDiscordEnabled() ? "ENABLED" : "DISABLED");
+        diagnostic(sender, "Bingo Discord Sync", events.bingoDiscordEnabled() ? "ENABLED" : "DISABLED");
         diagnostic(sender, "Item preview tokens", String.valueOf(plugin.getItemPreviewManager().size()));
         diagnostic(sender, "Item cleanup task", state(plugin.cleanupTaskActive()));
         diagnostic(sender, "GUI sessions", String.valueOf(guiSessions));
@@ -165,6 +172,7 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
             case "stats" -> eventStats(sender, args, events);
             case "leaderboard" -> eventLeaderboard(sender, events);
             case "bingo" -> bingo(sender, args, events);
+            case "discord" -> discordEvents(sender, args, events);
             case "enable", "disable" -> {
                 if (!permission(sender, "plexonchats.events.manage")) return;
                 boolean desired = action.equals("enable");
@@ -185,7 +193,7 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
                 if (args.length < 3) sender.sendMessage(Component.text("Usage: /chat events preview <event-id>"));
                 else events.preview(args[2], sender);
             }
-            default -> sender.sendMessage(Component.text("Usage: /chat events [status|list|stats|leaderboard|bingo|enable|disable|pause|resume|start|stop|preview]"));
+            default -> sender.sendMessage(Component.text("Usage: /chat events [status|list|stats|leaderboard|bingo|discord|enable|disable|pause|resume|start|stop|preview]"));
         }
     }
 
@@ -202,6 +210,44 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
         diagnostic(sender, "Last winner", events.lastWinner());
         diagnostic(sender, "Economy", events.economyState());
         diagnostic(sender, "PlexonKeys", events.keysState());
+        diagnostic(sender, "Discord Event Sync", events.discordEventsEnabled() ? "ENABLED" : "DISABLED");
+        diagnostic(sender, "Discord Transport", events.discordTransport() + " / " + events.discordTransportStatus());
+        diagnostic(sender, "Discord Message", events.discordMessageState());
+    }
+
+    private void discordEvents(CommandSender sender, String[] args, ChatEventManager events) {
+        if (!permission(sender, "plexonchats.admin.events.discord")) return;
+        String sub = args.length >= 3 ? args[2].toLowerCase(Locale.ROOT) : "status";
+        switch (sub) {
+            case "status" -> {
+                sender.sendMessage(Component.text("Discord Chat Events status"));
+                diagnostic(sender, "Enabled", events.discordEventsEnabled() ? "YES" : "NO");
+                diagnostic(sender, "Transport", events.discordTransport());
+                diagnostic(sender, "Transport Status", events.discordTransportStatus());
+                diagnostic(sender, "Channel", events.discordChannelConfigured() ? "CONFIGURED" : "NOT CONFIGURED");
+                diagnostic(sender, "Participation", events.discordParticipation());
+                diagnostic(sender, "Active Event", events.activeId());
+                diagnostic(sender, "Discord Message", events.discordMessageState());
+                diagnostic(sender, "Pending Update", events.discordPendingUpdate() ? "YES" : "NO");
+            }
+            case "test" -> {
+                if (!events.discordEventsEnabled()) {
+                    sender.sendMessage(Component.text("Discord Chat Events synchronization is disabled."));
+                    return;
+                }
+                events.sendDiscordTest().whenComplete((ignored, failure) -> Bukkit.getScheduler().runTask(plugin, () ->
+                        sender.sendMessage(Component.text(failure == null
+                                ? "Discord Chat Events test embed sent. No event/reward/statistic was created."
+                                : "Discord Chat Events test failed: " + safeFailure(failure)))));
+            }
+            default -> sender.sendMessage(Component.text("Usage: /chat events discord <status|test>"));
+        }
+    }
+
+    private static String safeFailure(Throwable failure) {
+        Throwable cause = failure;
+        while (cause.getCause() != null && cause.getCause() != cause) cause = cause.getCause();
+        return cause.getClass().getSimpleName();
     }
 
     private void eventStats(CommandSender sender, String[] args, ChatEventManager events) {
@@ -256,7 +302,7 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
                 diagnostic(sender, "Next draw", events.bingoNextDrawMillis() < 0 ? "-" : events.bingoNextDrawMillis() + "ms");
                 diagnostic(sender, "Patterns", events.bingoPatterns());
                 diagnostic(sender, "Reward", events.bingoRewardProfile());
-                diagnostic(sender, "Discord webhook", events.bingoDiscordEnabled() ? "ENABLED" : "DISABLED");
+                diagnostic(sender, "Discord Sync", events.bingoDiscordEnabled() ? events.discordTransport() + "/" + events.discordTransportStatus() : "DISABLED");
             }
             default -> sender.sendMessage(Component.text("Usage: /chat events bingo <board|claim|start|stop|status>"));
         }
@@ -306,6 +352,7 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
         helpLine(sender, "plexonchats.automessages", "/chat automessages <list|enable|disable|pause|resume|send|test|preview> [group]");
         helpLine(sender, "plexonchats.events", "/chat events — Event dashboard, stats and leaderboard");
         helpLine(sender, "plexonchats.events.manage", "/chat events <enable|disable|pause|resume|start|stop|preview> — Chat Events administration");
+        helpLine(sender, "plexonchats.admin.events.discord", "/chat events discord <status|test> — Discord event synchronization");
     }
     private void helpLine(CommandSender sender, String permission, String value) { if (sender.hasPermission(permission)) sender.sendMessage(Component.text(" • " + value)); }
 
@@ -331,6 +378,7 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
             if (args.length == 2) {
                 options.addAll(List.of("status", "list", "stats", "leaderboard", "bingo"));
                 if (sender.hasPermission("plexonchats.events.manage")) options.addAll(List.of("enable", "disable", "pause", "resume", "start", "stop", "preview"));
+                if (sender.hasPermission("plexonchats.admin.events.discord")) options.add("discord");
             } else if (args.length == 3) {
                 String action = args[1].toLowerCase(Locale.ROOT);
                 if (action.equals("start") && sender.hasPermission("plexonchats.events.manage")) { options.add("random"); options.addAll(plugin.getChatEvents().eventIds()); }
@@ -338,7 +386,7 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
                 else if (action.equals("bingo")) {
                     if (sender.hasPermission("plexonchats.events.bingo.play")) options.addAll(List.of("board", "claim"));
                     if (sender.hasPermission("plexonchats.events.manage")) options.addAll(List.of("start", "stop", "status"));
-                }
+                } else if (action.equals("discord") && sender.hasPermission("plexonchats.admin.events.discord")) options.addAll(List.of("status", "test"));
             }
         }
         String query = args[args.length - 1].toLowerCase(Locale.ROOT);
