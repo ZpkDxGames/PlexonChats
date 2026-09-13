@@ -22,7 +22,7 @@ jobs:
 
       - name: Verify accepted lineage
         shell: bash
-        run: git merge-base --is-ancestor 26cdf6fcff09d0443bbea64c5ec5ae3c4c1cd3a9 HEAD
+        run: git merge-base --is-ancestor 4353eb80b8b1e3efaac4e5ab5f82ff6e6c3f1210 HEAD
 
       - name: Set up Java 25
         uses: actions/setup-java@v5
@@ -98,6 +98,15 @@ jobs:
             com/antondev/chats/event/ChatEventPresentation.class \
             com/antondev/chats/event/ChatEventRewardService.class \
             com/antondev/chats/event/ChatEventStatisticsService.class \
+            com/antondev/chats/event/discord/ChatEventDiscordPublisher.class \
+            com/antondev/chats/event/discord/DiscordEventTransport.class \
+            com/antondev/chats/event/discord/DiscordEventTransportFactory.class \
+            com/antondev/chats/event/discord/DiscordSrvEventTransport.class \
+            com/antondev/chats/event/discord/WebhookEventTransport.class \
+            com/antondev/chats/event/discord/DiscordEventSettings.class \
+            com/antondev/chats/event/discord/DiscordEventEmbed.class \
+            com/antondev/chats/event/discord/BingoDiscordEmbedRenderer.class \
+            com/antondev/chats/event/discord/StandardEventDiscordEmbedRenderer.class \
             com/antondev/chats/event/bingo/BingoRun.class \
             com/antondev/chats/event/bingo/BingoBoard.class \
             com/antondev/chats/event/bingo/BingoBoardGenerator.class \
@@ -109,10 +118,14 @@ jobs:
             org/sqlite/JDBC.class; do
             grep -qx "${resource}" target/jar-contents.txt
           done
-          if grep -qx 'com/antondev/chats/event/bingo/BingoSession.class' target/jar-contents.txt; then
-            echo "Obsolete participant-specific BingoSession must not ship in 3.5.0" >&2
-            exit 1
-          fi
+          for obsolete in \
+            com/antondev/chats/event/bingo/BingoSession.class \
+            com/antondev/chats/event/bingo/BingoDiscordWebhook.class; do
+            if grep -qx "${obsolete}" target/jar-contents.txt; then
+              echo "Obsolete class must not ship in ${VERSION}: ${obsolete}" >&2
+              exit 1
+            fi
+          done
           for prefix in \
             'com/zpkdxgames/plexoncore/' \
             'com/antondev/keys/' \
@@ -141,16 +154,16 @@ jobs:
           commit=${GITHUB_SHA}
           tag=v${VERSION}
           version=${VERSION}
-          baseline_tag=v3.4.0
-          baseline_sha=26cdf6fcff09d0443bbea64c5ec5ae3c4c1cd3a9
-          rollback_tag=v3.4.0
-          rollback_sha=26cdf6fcff09d0443bbea64c5ec5ae3c4c1cd3a9
+          baseline_tag=v3.5.0
+          baseline_sha=4353eb80b8b1e3efaac4e5ab5f82ff6e6c3f1210
+          rollback_tag=v3.5.0
+          rollback_sha=4353eb80b8b1e3efaac4e5ab5f82ff6e6c3f1210
           java=25
           class_major=69
           paper=26.2
           plexoncore=2.0.4
           source_closure=VERIFIED
-          runtime_deployment=FOLLOW_UP_NON_BLOCKING
+          runtime_certification=FOLLOW_UP_REQUIRED
           EOF
           git diff --check
 
