@@ -2,7 +2,6 @@ package com.antondev.chats;
 
 import com.antondev.chats.gui.*;
 import com.antondev.chats.player.PreferenceStore;
-import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.event.inventory.*;
@@ -121,9 +120,10 @@ class ConfigurationAndGuiTest extends PluginTestBase {
     @Test void chatEventsPageUsesDedicatedSafeHolder() {
         var player = player("Admin");
         player.addAttachment(plugin, "plexonchats.gui", true);
+        player.addAttachment(plugin, "plexonchats.events", true);
         player.addAttachment(plugin, "plexonchats.events.manage", true);
         plugin.getChatGUI().openPage(player, ChatGUIHolder.Page.EVENTS);
-        assertEquals(27, player.getOpenInventory().getTopInventory().getSize());
+        assertEquals(45, player.getOpenInventory().getTopInventory().getSize());
         assertInstanceOf(ChatGUIHolder.class, player.getOpenInventory().getTopInventory().getHolder());
         assertEquals(ChatGUIHolder.Page.EVENTS, ((ChatGUIHolder) player.getOpenInventory().getTopInventory().getHolder()).getPage());
     }
