@@ -83,7 +83,7 @@ public final class ChatEventDataStore {
 
     private void migrateLegacyGameplay(YamlConfiguration target, ConfigurationSection legacy) {
         if (legacy == null) return;
-        target.set("enabled", legacy.getBoolean("enabled", target.getBoolean("enabled", true)));
+        // The global Chat Events master switch remains in config.yml so existing admin controls retain authority.
         copy(target, "scheduler.enabled", legacy, "scheduler.enabled");
         copy(target, "scheduler.initial-delay-seconds", legacy, "scheduler.initial-delay-seconds");
         copy(target, "scheduler.min-interval-seconds", legacy, "scheduler.min-interval-seconds");

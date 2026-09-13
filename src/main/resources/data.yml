@@ -1,7 +1,6 @@
 # PlexonChats 4.0 gameplay/minigame data.
 # Presentation, reward profile bodies and integration credentials remain in config.yml.
 schema-version: 1
-enabled: true
 
 scheduler:
   enabled: true
@@ -148,3 +147,20 @@ minigames:
       on-start: true
       after-successful-mark: true
       on-every-draw: false
+
+    messages:
+      lobby:
+        - "{separator}"
+        - "<gold><bold>✦ BINGO • STARTS IN {lobby_time}</bold></gold>"
+        - ""
+        - "<gray>Reward:</gray> <gold>{reward}</gold>"
+        - "<click:run_command:'/bingo join'><hover:show_text:'<gray>Join this Bingo round</gray><newline><gray>Your personal card is generated when you join.</gray>'><aqua><bold>[ JOIN BINGO ]</bold></aqua></hover></click>"
+        - ""
+        - "<gray>Joined:</gray> <white>{participant_count}</white>"
+        - "{separator}"
+      reminder:
+        - "<gold>✦ BINGO</gold> <gray>•</gray> <yellow>{lobby_seconds}s until start</yellow> <click:run_command:'/bingo join'><aqua><bold>[ JOIN ]</bold></aqua></click>"
+      draw:
+        - "<gold>◈ BINGO</gold> <gray>•</gray> <white>{drawn_number}</white> <gray>•</gray> <yellow>{draw_count}/75</yellow>"
+      invalid-claim:
+        - "<red>✕ No completed Bingo pattern yet.</red>"

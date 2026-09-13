@@ -134,7 +134,10 @@ public final class BingoRun {
     public synchronized ActivationStatus activate(long nowNanos, Predicate<UUID> online) {
         if (phase.get() != Phase.LOBBY) return ActivationStatus.NOT_LOBBY;
         if (requireOnlineAtStart) participants.entrySet().removeIf(entry -> !online.test(entry.getKey()));
-        if (participants.size() < minimumParticipants) {
+        // Activation before the lobby deadline can only be the explicit admin `/bingo start now` path.
+        // That path deliberately allows exactly one joined participant without weakening the scheduled deadline gate.
+        int requiredParticipants = nowNanos < lobbyDeadlineNanos ? 1 : minimumParticipants;
+        if (participants.size() < requiredParticipants) {
             phase.set(Phase.CANCELLED);
             return ActivationStatus.NOT_ENOUGH_PARTICIPANTS;
         }
