@@ -51,11 +51,11 @@ jobs:
           set -euo pipefail
           VERSION='${{ steps.project.outputs.version }}'
           test "${GITHUB_REF_NAME}" = 'release/stable'
-          test "${VERSION}" = '3.6.2'
+          test "${VERSION}" = '4.0.0'
           case "${VERSION}" in *-*) echo "Stable workflow refuses prerelease version: ${VERSION}" >&2; exit 1;; esac
           git fetch origin main
           test "${GITHUB_SHA}" = "$(git rev-parse origin/main)"
-          git merge-base --is-ancestor 4fda9cde9af6620aafa9a0f17b2e03c37d33830b HEAD
+          git merge-base --is-ancestor 2099d8b50d267b9a430bc1ef34a18415b020318c HEAD
           test -s ".release/${VERSION}.md"
           if gh release view "v${VERSION}" >/dev/null 2>&1; then echo "v${VERSION} release already exists" >&2; exit 1; fi
           if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null 2>&1; then echo "v${VERSION} tag already exists" >&2; exit 1; fi
@@ -98,9 +98,11 @@ jobs:
           for resource in \
             plugin.yml \
             config.yml \
+            data.yml \
             com/antondev/chats/PlexonChats.class \
             com/antondev/chats/api/PlexonChatEvent.class \
             com/antondev/chats/api/PlexonChatsAPI.class \
+            com/antondev/chats/config/ChatEventDataStore.class \
             com/antondev/chats/diagnostics/ChatDiagnostics.class \
             com/antondev/chats/event/ChatEventManager.class \
             com/antondev/chats/event/ChatEventEngine.class \
@@ -118,12 +120,12 @@ jobs:
             com/antondev/chats/event/discord/BingoDiscordEmbedRenderer.class \
             com/antondev/chats/event/discord/StandardEventDiscordEmbedRenderer.class \
             com/antondev/chats/event/bingo/BingoRun.class \
+            com/antondev/chats/event/bingo/BingoParticipant.class \
             com/antondev/chats/event/bingo/BingoBoard.class \
             com/antondev/chats/event/bingo/BingoBoardGenerator.class \
             com/antondev/chats/event/bingo/BingoPattern.class \
             com/antondev/chats/event/bingo/BingoPatternEvaluator.class \
             com/antondev/chats/event/bingo/BingoRenderer.class \
-            com/antondev/chats/event/bingo/BingoAnsiRenderer.class \
             com/antondev/chats/storage/ChatEventDatabase.class \
             org/sqlite/JDBC.class; do
             grep -qx "${resource}" target/jar-contents.txt
@@ -164,10 +166,10 @@ jobs:
           commit=${GITHUB_SHA}
           tag=v${VERSION}
           version=${VERSION}
-          baseline_tag=v3.6.1
-          baseline_sha=4fda9cde9af6620aafa9a0f17b2e03c37d33830b
-          rollback_tag=v3.6.1
-          rollback_sha=4fda9cde9af6620aafa9a0f17b2e03c37d33830b
+          baseline_tag=v3.6.2
+          baseline_sha=2099d8b50d267b9a430bc1ef34a18415b020318c
+          rollback_tag=v3.6.2
+          rollback_sha=2099d8b50d267b9a430bc1ef34a18415b020318c
           java=25
           class_major=69
           paper=26.2

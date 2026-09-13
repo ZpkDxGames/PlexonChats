@@ -86,6 +86,34 @@ class BingoModelTest {
         assertEquals(BingoRun.MarkStatus.STALE_RUN, run.mark(first.playerId(), UUID.randomUUID(), target).status());
     }
 
+    @Test void markValidationRejectsNonParticipantAndNumbersOutsidePersonalCard() {
+        BingoRun run = activeRun(40, 1);
+        BingoParticipant participant = run.participants().values().iterator().next();
+        drawAll(run);
+        int onCard = participant.board().numberAt(0);
+        assertEquals(BingoRun.MarkStatus.NOT_JOINED,
+                run.mark(UUID.randomUUID(), run.runId(), onCard).status());
+        int outside = java.util.stream.IntStream.rangeClosed(1, 75)
+                .filter(value -> participant.board().indexOf(value) < 0)
+                .findFirst().orElseThrow();
+        assertTrue(run.drawnNumbers().contains(outside));
+        assertEquals(BingoRun.MarkStatus.NOT_ON_CARD,
+                run.mark(participant.playerId(), run.runId(), outside).status());
+        assertEquals(0, participant.markedCount());
+    }
+
+    @Test void scheduledActivationStillRequiresConfiguredProductionMinimum() {
+        BingoRun scheduled = new BingoRun(UUID.randomUUID(), definition(), BingoRun.Source.SCHEDULED,
+                0, seconds(60), 2, seconds(600), 0, 1,
+                Set.of(BingoPattern.ROW, BingoPattern.COLUMN, BingoPattern.DIAGONAL), List.of(60, 30, 15, 5),
+                false, true, false, new java.util.Random(41));
+        assertEquals(BingoRun.JoinStatus.JOINED,
+                scheduled.join(UUID.randomUUID(), "OnlyScheduledPlayer", 1, true).status());
+        assertEquals(BingoRun.ActivationStatus.NOT_ENOUGH_PARTICIPANTS,
+                scheduled.activate(seconds(60), ignored -> true));
+        assertEquals(BingoRun.Phase.CANCELLED, scheduled.phase());
+    }
+
     @Test void globalDrawHistoryCannotWinButManualMarksCan() {
         BingoRun run = activeRun(5, 1);
         BingoParticipant participant = run.participants().values().iterator().next();
