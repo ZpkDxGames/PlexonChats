@@ -1,6 +1,6 @@
-# Upgrading PlexonChats to 4.0.0
+# Upgrading PlexonChats to 4.0.1
 
-PlexonChats 4.0.0 is built from stable `v3.6.2` (`2099d8b50d267b9a430bc1ef34a18415b020318c`). This is a gameplay architecture upgrade: v3.6.2 shared automatic-mark Bingo is replaced by explicit joining, participant-owned cards, and manual marks.
+PlexonChats 4.0.1 is a focused Bingo renderer/pacing release built directly from stable `v4.0.0` (`657d27766bce60235bc50602b4dd4d14b9e6998c`). The 4.0.0 participant-owned/manual-mark authority model remains unchanged.
 
 ## Before upgrading
 
@@ -8,114 +8,151 @@ Back up:
 
 - the current PlexonChats JAR;
 - `plugins/PlexonChats/config.yml`;
+- `plugins/PlexonChats/data.yml`;
 - `plugins/PlexonChats/players.yml`;
-- `plugins/PlexonChats/chat-events.db`;
-- existing `plugins/PlexonChats/data.yml`, if a pre-release/test build already created one.
+- `plugins/PlexonChats/chat-events.db`.
 
-The authoritative rollback release is:
-
-```text
-v3.6.2
-2099d8b50d267b9a430bc1ef34a18415b020318c
-```
-
-## First 4.0 startup
-
-`config.yml` remains schema v10. 4.0 introduces `data.yml` schema 1 for Chat Events scheduler/randomizer/minigame gameplay.
-
-When `data.yml` is absent, PlexonChats:
-
-1. writes `config-before-v4-<timestamp>.yml`;
-2. reads compatible v3.6.2 Chat Events gameplay values;
-3. creates schema-1 `data.yml`;
-4. carries across administrator-owned enabled states, weights, cooldowns, durations, minimum-online values, reward references, channels/eligibility, content pools, math ranges, and compatible Bingo timing/pattern settings;
-5. supplies the new lobby/manual-mark settings from v4 defaults;
-6. leaves Discord webhook credentials and other secrets in `config.yml`.
-
-If `data.yml` already exists, the migration does not replace its administrator values with legacy `config.yml` gameplay.
-
-## Bingo behavior change
-
-The following v3.6.2 behavior is intentionally removed:
-
-- one shared card for all players;
-- automatic marking from global draw history;
-- claim validation against globally drawn shared cells;
-- Discord rendering of a shared live board.
-
-The 4.0 flow is:
-
-1. Bingo opens a `LOBBY`.
-2. Scheduled stock reminders are 60/30/15/5 seconds.
-3. Players explicitly join with the clickable JOIN action or `/bingo join`.
-4. Each participant receives one stable personal card.
-5. The server calls numbers globally.
-6. Calls do not mark cards.
-7. Players click a called number on their own card to mark it.
-8. Uncalled clicks are rejected in the action bar with no state change.
-9. Successful marks render green without brackets.
-10. `/bingo claim` evaluates the claimant's manual marked cells only.
-11. Exactly one accepted winner owns reward/statistics completion.
-
-Old run-bound clickable card actions cannot mutate a new run.
-
-## Administration
-
-Player commands:
+The authoritative 4.0.1 rollback release is:
 
 ```text
-/bingo
-/bingo join
-/bingo leave
-/bingo claim
+v4.0.0
+657d27766bce60235bc50602b4dd4d14b9e6998c
 ```
 
-Admin commands:
+## What changes in 4.0.1
+
+Fresh 4.0.1 gameplay data changes two stock Bingo presentation/pacing defaults:
+
+- renderer: `TABLE` with fixed-width `minecraft:uniform`, four-character cells, aligned separators and borders;
+- draw cadence: `draws.interval-seconds: 5` instead of the 4.0.0 stock value of 8.
+
+`COMPACT` remains available as the 4.0.0-compatible borderless renderer. The grid never uses width-changing bold/marker characters for mark or winner state.
+
+The following 4.0.0 mechanics remain authoritative and are not migrated or rewritten:
+
+- explicit Bingo join lobby;
+- stable participant-owned cards;
+- global draw history separate from manual marks;
+- server-validated run-bound cell clicks;
+- winning evaluation from manual marked cells only;
+- exact-once reward/stat/winner completion;
+- production minimums distinct from one-player admin testing;
+- Discord display-only behavior.
+
+## Existing `data.yml` is preserved
+
+`data.yml` remains schema **1**. 4.0.1 does not bump the schema merely to change defaults, so an existing administrator-owned schema-1 file is not rewritten to force new values.
+
+That means an existing 4.0.0 server commonly retains:
+
+```yaml
+draws:
+  first-call-delay-seconds: 5
+  interval-seconds: 8
+
+render:
+  font: "minecraft:uniform"
+  left-padding: 3
+  cell-width: 4
+  column-gap: 1
+  show-border: false
+```
+
+If `render.style` is absent, 4.0.1 preserves compatibility from the existing `show-border` setting. A typical 4.0.0 borderless block therefore remains `COMPACT` at runtime rather than being silently converted.
+
+## Adopt the recommended 5-second cadence
+
+To opt an existing installation into the fresh 4.0.1 call pacing, edit:
+
+```yaml
+# plugins/PlexonChats/data.yml
+minigames:
+  bingo-classic:
+    draws:
+      first-call-delay-seconds: 5
+      interval-seconds: 5
+```
+
+Then apply it with:
 
 ```text
-/bingo start
-/bingo start now
-/bingo stop
-/bingo status
+/chat reload
 ```
 
-`/bingo start now` is intended for admin testing after at least one participant explicitly joins. It does not reduce scheduled production minimums.
+Do not add a second Bingo draw interval to `config.yml`; `data.yml` remains the sole gameplay authority.
 
-## Discord
+## Adopt the new table renderer
 
-Discord remains `DISPLAY_ONLY`. Bingo Discord output now contains shared lifecycle metadata (lobby/countdown, participants, last call/draw count, winner/pattern) and never exposes participant-owned cards. Discord cannot join, mark, claim, or issue a reward.
+To opt an existing 4.0.0 installation into the fresh table presentation, use:
 
-## Validation after upgrade
+```yaml
+# plugins/PlexonChats/data.yml
+minigames:
+  bingo-classic:
+    render:
+      style: TABLE
+      font: "minecraft:uniform"
+      left-padding: 2
+      cell-width: 4
+      column-gap: 0
+      show-border: true
+      show-last-call: true
+      show-draw-count: true
+      on-join: true
+      on-start: true
+      after-successful-mark: true
+      on-every-draw: false
+```
 
-Source/CI verification is necessary but not sufficient for live certification. On a real Paper 26.2 / Java 25 server, verify:
+`COMPACT` may be selected explicitly if the old borderless presentation is preferred.
 
-1. one scheduled lobby with 60/30/15/5 reminders and no duplicates;
-2. clickable JOIN plus `/bingo join`;
-3. two participants receive independent cards;
-4. called numbers do not auto-mark either card;
-5. uncalled click gives action-bar rejection and no mutation;
-6. called click marks only that player's cell and renders green/no brackets;
-7. early claim is rejected;
-8. a manually completed enabled pattern wins exactly once;
-9. no later mark/claim creates another reward/stat;
-10. table/header alignment under normal client rendering;
-11. one-player admin test can activate;
-12. scheduled production minimum remains unchanged;
-13. `data.yml` exists, reloads, and preserves custom pools/ranges;
-14. Discord shows lifecycle metadata but no fake shared card;
-15. normal TYPE/UNSCRAMBLE/MATH/TRIVIA/REVERSE events, chat, PM/reply, and DiscordSRV chat still function.
+## Reload behavior
 
-Do not mark runtime certification PASS without this evidence. Release provenance remains `FOLLOW_UP_REQUIRED` until the live checklist is actually executed.
+`/chat reload` validates `config.yml` and `data.yml` as a new runtime generation. A valid renderer/pacing change affects future Bingo state according to the normal reload lifecycle. Malformed Bingo timing/style/font/geometry is isolated to the malformed minigame where safe instead of disabling unrelated chat features.
+
+No stale draw scheduler should continue after reload, and the plugin must not create a duplicate draw scheduler.
+
+## Visual/runtime validation after upgrade
+
+Source/CI verification cannot prove Minecraft pixel alignment. On a real Paper 26.2 / Java 25 client, preferably at two normal GUI scales, verify:
+
+1. the top/header/data/bottom separators form straight vertical columns;
+2. B/I/N/G/O headers are centered over their columns;
+3. one-digit source values render as two digits without shifting cells;
+4. marking cells green does not move separators;
+5. winner color/underline does not widen cells;
+6. every number cell remains clickable and run-bound;
+7. uncalled cells are still server-authoritatively rejected;
+8. five-second calls are readable;
+9. the full board is not reprinted every five seconds by default;
+10. `[ CALL BINGO ]` remains clear and clickable;
+11. draw history still does not auto-mark or create a win;
+12. exactly one claimant can own reward/stat completion;
+13. scheduled participant minimums remain intact and one-player admin testing still works;
+14. Discord shows lifecycle metadata only and no participant card.
+
+If Unicode box drawing is visibly inconsistent under the target client/font, use the deterministic ASCII fallback rather than accepting a misaligned table.
+
+Do not mark runtime certification PASS without real-client evidence. Release provenance remains:
+
+```text
+runtime_certification=FOLLOW_UP_REQUIRED
+```
+
+## Historical first-v4 migration
+
+For servers upgrading from pre-v4 rather than from 4.0.0: `config.yml` remains schema v10 and v4 introduced `data.yml` schema 1. When `data.yml` is absent, PlexonChats creates `config-before-v4-<timestamp>.yml`, migrates compatible older Chat Events gameplay values into `data.yml`, and leaves Discord/webhook credentials and other secrets in `config.yml`.
+
+The v4 architecture intentionally replaced shared automatic-mark Bingo with explicit joining, participant-owned cards, manual server-validated marks, and Discord metadata-only presentation. Those mechanics remain the foundation of 4.0.1.
 
 ## Rollback
 
-To return to 3.6.2:
+To return from 4.0.1 to 4.0.0:
 
 1. stop the server/plugin cleanly;
-2. restore `PlexonChats-3.6.2.jar`;
-3. restore the appropriate pre-v4 configuration backup as `config.yml` if v4-specific edits were made;
-4. keep the v4 `data.yml` out of the 3.6.2 runtime (archive it rather than destroying it);
-5. preserve/restore `players.yml` and `chat-events.db` according to the operational restore point;
-6. start the server and verify 3.6.2 behavior.
+2. restore `PlexonChats-4.0.0.jar`;
+3. restore the pre-4.0.1 `data.yml` backup if you changed renderer/timing settings specifically for 4.0.1;
+4. preserve `players.yml` and `chat-events.db` according to the operational restore point;
+5. start the server and verify the 4.0.0 behavior/configuration you expect.
 
-The authoritative source rollback tag/SHA is `v3.6.2` / `2099d8b50d267b9a430bc1ef34a18415b020318c`.
+The authoritative source rollback tag/SHA is `v4.0.0` / `657d27766bce60235bc50602b4dd4d14b9e6998c`.
