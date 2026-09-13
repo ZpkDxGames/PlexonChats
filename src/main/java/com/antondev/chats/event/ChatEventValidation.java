@@ -235,12 +235,12 @@ public final class ChatEventValidation {
 
     private static void validateLegacyMiniMessage(String path, String value) {
         try { LEGACY_MINI_MESSAGE.deserialize(value); }
-        catch (IllegalArgumentException ex) { throw invalid(path, "contains invalid MiniMessage: " + ex.getMessage()); }
+        catch (RuntimeException ex) { throw invalid(path, "contains invalid MiniMessage: " + ex.getMessage()); }
     }
 
     private static void validateStrictMiniMessage(String path, String value) {
         try { STRICT_MINI_MESSAGE.deserialize(value); }
-        catch (IllegalArgumentException ex) { throw invalid(path, "contains invalid MiniMessage: " + ex.getMessage()); }
+        catch (RuntimeException ex) { throw invalid(path, "contains invalid MiniMessage: " + ex.getMessage()); }
     }
 
     private static void validateSound(ConfigurationSection root, String path) {
