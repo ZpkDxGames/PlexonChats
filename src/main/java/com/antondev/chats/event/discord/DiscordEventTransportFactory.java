@@ -2,6 +2,8 @@ package com.antondev.chats.event.discord;
 
 import com.antondev.chats.PlexonChats;
 
+import java.util.function.Supplier;
+
 /** AUTO transport selector. DiscordSRV is preferred; webhook is the safe fallback. */
 public final class DiscordEventTransportFactory {
     private DiscordEventTransportFactory() { }
@@ -17,10 +19,22 @@ public final class DiscordEventTransportFactory {
 
     private static DiscordEventTransport auto(PlexonChats plugin, DiscordEventSettings settings) {
         DiscordEventTransport discord = discordSrv(plugin, settings, true);
+        boolean webhookConfigured = settings.webhook().enabled() && !settings.webhook().url().isBlank();
+        return selectAuto(discord, webhookConfigured, () -> webhook(settings));
+    }
+
+    /** Package-visible deterministic selection boundary used by transport fallback tests. */
+    static DiscordEventTransport selectAuto(DiscordEventTransport discord, boolean webhookConfigured,
+                                            Supplier<DiscordEventTransport> webhookSupplier) {
         String status = discord.status();
         if (status.equals("READY") || status.equals("WAITING_FOR_DISCORD")) return discord;
         discord.close();
-        if (settings.webhook().enabled() && !settings.webhook().url().isBlank()) return webhook(settings);
+        if (webhookConfigured) {
+            try { return webhookSupplier.get(); }
+            catch (RuntimeException failure) {
+                return DiscordEventTransport.unavailable("Discord webhook configuration is invalid");
+            }
+        }
         return DiscordEventTransport.unavailable("DiscordSRV unavailable and webhook is not configured");
     }
 
