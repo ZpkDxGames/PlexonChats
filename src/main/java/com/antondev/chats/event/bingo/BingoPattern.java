@@ -11,6 +11,16 @@ public enum BingoPattern {
     FOUR_CORNERS,
     FULL_HOUSE;
 
+    public String displayName() {
+        return switch (this) {
+            case ROW -> "a row";
+            case COLUMN -> "a column";
+            case DIAGONAL -> "a diagonal";
+            case FOUR_CORNERS -> "four corners";
+            case FULL_HOUSE -> "a full house";
+        };
+    }
+
     public Set<Integer> matchingCells(BingoBoard board) {
         return switch (this) {
             case ROW -> firstCompleteRow(board);
