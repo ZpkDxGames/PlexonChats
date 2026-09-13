@@ -11,12 +11,12 @@ import static org.junit.jupiter.api.Assertions.*;
 class ChatEventReloadSafetyTest extends PluginTestBase {
     @Test void rejectedConfigReloadDoesNotCancelActiveEvent() throws Exception {
         player("Participant");
-        config(yaml -> {
-            yaml.set("chat-events.scheduler.enabled", false);
-            yaml.set("chat-events.events.type-rush.values", List.of("keep-running"));
-            yaml.set("chat-events.events.type-rush.cooldown-seconds", 0);
-            yaml.set("chat-events.reward-profiles.basic.economy.enabled", false);
+        data(yaml -> {
+            yaml.set("scheduler.enabled", false);
+            yaml.set("minigames.type-rush.values", List.of("keep-running"));
+            yaml.set("minigames.type-rush.cooldown-seconds", 0);
         });
+        config(yaml -> yaml.set("chat-events.reward-profiles.basic.economy.enabled", false));
         assertEquals(ChatEventManager.StartStatus.STARTED, plugin.getChatEvents().start("type-rush"));
         var runId = plugin.getChatEvents().activeRunId();
         assertNotNull(runId);

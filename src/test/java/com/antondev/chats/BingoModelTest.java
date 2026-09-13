@@ -158,7 +158,7 @@ class BingoModelTest {
         Component markedRow = rendered.get(2);
         assertTrue(markedRow.children().stream().anyMatch(child -> NamedTextColor.GREEN.equals(child.style().color())));
         assertTrue(markedRow.children().stream().anyMatch(child -> child.style().clickEvent() != null
-                && child.style().clickEvent().value().contains(run.runId().toString())));
+                && String.valueOf(child.style().clickEvent()).contains(run.runId().toString())));
     }
 
     private static BingoRun activeRun(int seed, int participants) {
