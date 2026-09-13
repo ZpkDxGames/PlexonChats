@@ -1,18 +1,16 @@
 # Configuration guide
 
-Edit `plugins/PlexonChats/config.yml` using UTF-8 and spaces. Keep one copy of each top-level YAML key. The bundled configuration is the authoritative schema example; snippets below are partial sections to merge into an existing file.
+Edit `plugins/PlexonChats/config.yml` using UTF-8 and spaces. The bundled v6 configuration is the authoritative complete schema example. Run `/chat reload` after editing.
 
-Run `/chat reload` after editing. PlexonChats parses, migrates, and validates the complete candidate before publishing it. Invalid YAML or invalid Chat Events/scheduler/reward data does not replace the known-good live generation. Schema v5 migration backs up an older file as `config-before-v5-*.yml` before mutation.
+PlexonChats parses, migrates and validates the entire candidate before publishing it. Invalid YAML, MiniMessage, GUI, Chat Event, reward or Bingo data does not replace the known-good runtime generation. A successful migration to schema v6 first creates `config-before-v6-<timestamp>.yml`.
 
-## Text and trust boundaries
+## Text/trust boundary
 
-Administrator-owned templates use MiniMessage. Dynamic player/provider values are inserted as components, not reparsed as trusted markup. Player Chat Event answers are always raw data: they are not MiniMessage, commands, or PlaceholderAPI templates.
+Administrator templates may use MiniMessage. Player/provider/generated values are inserted as Adventure Components and are not reparsed as trusted MiniMessage source. Raw player Chat Event answers are data only and cannot become reward commands.
 
-Common placeholders include `{player}`, `{player_name}`, `{display_name}`, `{rank}`, `{rank_prefix}`, `{balance}`, `{world}`, `{uuid}`, `{playtime}`, `{ping}`, `{online}`, `{max_players}`, `{server_name}`, `{version}`, `{channel_badge}`, `{separator}`, `{message}`, `{channel}`, `{channel_id}`, `{radius}`, `{global_shortcut}`, and GUI status placeholders.
+Normal chat placeholders include player/channel/rank/balance/world/server fields. Chat Event presentation additionally supports event ID/type/name, description/prompt, reward, duration/remaining time, winner/UUID, total/type wins, elapsed time, answer, participant count and Bingo draw information.
 
-Chat Event prompt/result placeholders additionally include trusted generated/configured values such as `{event_id}`, `{event_type}`, `{prompt}`, `{question}`, `{value}`, `{scrambled}`, `{expression}`, `{answer}`, `{winner}`, `{winner_uuid}`, `{elapsed}`, `{elapsed_ms}`, `{reward_profile}`, `{reward_summary}`, and `{remaining}`. Do not place the raw player-submitted answer into command or trusted-template expansion.
-
-## Public channels
+## Public chat
 
 ```yaml
 channels:
@@ -20,68 +18,29 @@ channels:
     enabled: true
     radius: 100
     format: "{channel_badge} {rank_prefix}{player}{separator}<gray>{message}"
-    receive-permission: ""
   global:
     enabled: true
     format: "{channel_badge} {rank_prefix}{player}{separator}<white>{message}"
     shortcut-prefix: "!"
-    receive-permission: ""
 ```
 
-LOCAL delivery is same-world and radius-bounded. Channel permissions control sending; an optional receive permission independently restricts recipients. The selected channel controls outgoing public messages only.
-
-`PlexonChatEvent` remains synchronous and cancellable before public delivery. Chat Events accept answers only from the native public-chat route after that cancellation point; command shortcuts and synthetic sends are not valid competition submissions.
-
-## Player formatting, PMs, mentions, items
-
-- `chat-components.player` configures nickname format/hover/click behavior.
-- `private-messages.sent-format` supports `{target}`/`{message}`; received format supports `{sender}`/`{message}`.
-- `mentions.format`, action-bar text, and sound control mention presentation.
-- `item-display` controls `[item]`/`@hand`, rich item hover, and bounded preview tokens.
-- `formatting.allow-advanced-player-tags` should remain false unless advanced player MiniMessage tags are intentionally trusted.
-
-## Connection messages
-
-`connection-messages.join|quit.mode` accepts `DEFAULT`, `CUSTOM`, or `HIDDEN`. CUSTOM mode uses the configured MiniMessage template, DEFAULT preserves the native event message, and HIDDEN removes it. `respect-hidden` and the configured silent permission preserve vanish/privacy behavior.
+LOCAL is same-world/radius-bounded. `PlexonChatEvent` remains synchronous and cancellable before delivery. Ordinary answer events accept submissions only from the accepted native public-chat route; commands, PMs, Discord, broadcasts and synthetic/plugin sends do not count.
 
 ## GUI
 
-`gui`, `gui.admin`, `gui.events`, and `gui.creator` use configurable row counts and item maps. Slots are zero-based. The stable custom-holder and centralized click router block inventory transfer, drag, shift-click, hotbar swaps, and stale-view actions.
+The main/admin/creator menu definitions remain configuration-driven. PlexonChats 3.4 renders the Chat Events administration dashboard dynamically because it depends on live event/database/Bingo state and pagination.
 
-Core actions include:
-
-- player: `LOCAL`, `GLOBAL`, `TOGGLE_MENTIONS`, `TOGGLE_TIPS`, `TOGGLE_PRIVATE_MESSAGES`;
-- navigation: `OPEN_MAIN`, `OPEN_ADMIN`, `OPEN_CHAT_EVENTS`, `OPEN_CREATOR`, `CLOSE`;
-- admin: `RELOAD`, `PREVIEW_FORMAT`, `TOGGLE_AUTO_MESSAGES`;
-- Chat Events: `TOGGLE_CHAT_EVENTS`, `PAUSE_CHAT_EVENTS`, `RESUME_CHAT_EVENTS`, `START_RANDOM_CHAT_EVENT`, `STOP_CHAT_EVENT`;
-- utility: `PLAYER_COMMAND`, `MESSAGE`, `LINK`, `NONE`.
-
-Button `permission` adds a requirement; it never removes an action's built-in permission. `hide-without-permission` hides rather than merely locks the entry.
+All GUI surfaces retain custom `InventoryHolder` routing, permission rechecks, config-generation protection and inventory transfer/drag blocking. Dynamic Chat Event holders additionally carry selected-page and active-run context to make stale actions harmless.
 
 ## Auto-messages
 
-Auto-messages remain separate from Chat Events. One shared coordinator services every enabled group. Groups support `SEQUENTIAL`/`SHUFFLE`, CHAT/ACTION_BAR/TITLE delivery, initial delay/interval, audience filters, tip preference, sound, and optional safe Discord forwarding.
-
-```yaml
-auto-messages:
-  enabled: true
-  groups:
-    tips:
-      enabled: true
-      interval-seconds: 300
-      initial-delay-seconds: 60
-      order: SHUFFLE
-      min-online: 1
-      respect-tip-preference: true
-```
-
-Reload replaces the coordinator instead of stacking tasks. Missed intervals do not create catch-up bursts.
+Auto-messages remain independent from Chat Events and use one shared coordinator. Existing `SEQUENTIAL`/`SHUFFLE`, CHAT/TITLE/ACTION_BAR, audience and preference options remain supported.
 
 # Chat Events
 
-The complete event/reward/administration reference is in [CHAT-EVENTS.md](CHAT-EVENTS.md).
+See [CHAT-EVENTS.md](CHAT-EVENTS.md) for the complete behavior reference.
 
-## Master and scheduler
+## Scheduler/defaults
 
 ```yaml
 chat-events:
@@ -94,18 +53,6 @@ chat-events:
     min-online: 1
     avoid-immediate-repeat: true
     pause-when-empty: true
-```
-
-- master enabled + scheduler enabled: automatic and manual events are available;
-- master enabled + scheduler disabled: manual events remain available;
-- master disabled: no playable event may start and an active run is cancelled without reward.
-
-Only one event can be active. The coordinator uses monotonic time, no catch-up burst, and one repeating task. `weight: 0` is manual-only; positive-weight enabled/off-cooldown definitions participate in random scheduling.
-
-## Defaults and matching
-
-```yaml
-chat-events:
   defaults:
     duration-seconds: 30
     reveal-answer-on-timeout: true
@@ -122,92 +69,156 @@ chat-events:
       ignore-diacritics: false
 ```
 
-Empty `worlds` means all worlds; exclusions win. Empty permission means no extra event permission. Prompts/results are sent only to eligible participants. Valid answers must originate from native accepted Minecraft public chat; PMs, commands, Discord, broadcasts, auto-messages, connection messages, console, and plugin-generated sends do not count.
+Master disabled means no manual/automatic event can start. Scheduler disabled means automatic selection stops while manual start remains available. Only one event occupies the active slot.
 
-## Required event types
-
-`TYPE`, `UNSCRAMBLE`, `MATH`, `TRIVIA`, and `REVERSE` are available. Every definition supports:
+## Presentation
 
 ```yaml
-enabled: true
-weight: 10
-cooldown-seconds: 1800
-reward-profile: rare
+chat-events:
+  presentation:
+    blank-lines-before: 1
+    blank-lines-after: 1
+    separator: "<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>"
+    type-names:
+      TYPE: "Type Rush"
+      UNSCRAMBLE: "Unscramble"
+      MATH: "Quick Math"
+      TRIVIA: "Trivia"
+      REVERSE: "Reverse"
+      BINGO: "Bingo"
+    start:
+      - "{separator}"
+      - "<aqua><bold>CHAT EVENT</bold></aqua> <white>{event_name}</white>"
+      - ""
+      - "{prompt}"
+      - ""
+      - "<gray>Reward:</gray> <gold>{reward}</gold>"
+      - "<gray>Time:</gray> <yellow>{duration_seconds}s</yellow>"
+      - "{separator}"
 ```
 
-TYPE/REVERSE use `values`; UNSCRAMBLE uses `words`; MATH uses `operations`, `min-operand`, `max-operand`, and `allow-negative-result`; TRIVIA uses administrator-authored `entries` with `question` and `accepted-answers`.
-
-MATH supports ADD/SUBTRACT/MULTIPLY/exact integer DIVIDE. Impossible/unsafe ranges reject the candidate configuration. UNSCRAMBLE is bounded for repetitive/short words. REVERSE uses Unicode code points.
+Start/winner/timeout/cancelled are line lists. Blank-line counts accept 0–3. MiniMessage is strictly validated before a runtime generation is published.
 
 ## Reward profiles
 
 ```yaml
 chat-events:
   reward-profiles:
-    rare:
+    epic:
       economy:
         enabled: true
-        amount: 2500.0
+        amount: 5000.0
       plexonkeys:
         enabled: true
-        tier: RARE
+        tier: EPIC
         amount: 1
       console-commands: []
 ```
 
-Economy and PlexonKeys are optional component integrations. Supported key tier names are `BASIC`, `RARE`, `EPIC`, and `LEGENDARY`. Missing providers produce a component failure without crashing chat, retrying the bundle, or selecting another winner.
+Vault/PlexonKeys remain optional. Supported key tiers are BASIC, RARE, EPIC and LEGENDARY. A missing provider fails only that component and does not reopen the event.
 
-Console commands run as console on the primary thread and may use only `{player_name}`, `{player_uuid}`, `{event_id}`, and `{event_type}`. Empty command lists are valid.
-
-The winner transition and reward attempt are exact-once. Timeout, stop, disable, reload cancellation, and preview grant nothing.
-
-## Chat Events sounds/messages
+## Normal event definitions
 
 ```yaml
 chat-events:
-  sounds:
-    start: { sound: BLOCK_NOTE_BLOCK_PLING, volume: 1.0, pitch: 1.2 }
-    win: { sound: UI_TOAST_CHALLENGE_COMPLETE, volume: 1.0, pitch: 1.0 }
-    timeout: { sound: BLOCK_NOTE_BLOCK_BASS, volume: 1.0, pitch: 1.0 }
-  messages:
-    prefix: "<bold><gradient:#ffd66b:#ff9f43>Chat Event</gradient></bold> <dark_gray>» "
-    winner: "<green><bold>{winner}</bold></green> <gray>answered correctly in <white>{elapsed}</white>! <gray>Reward: {reward_summary}"
-    timed-out: "<yellow>Time's up!</yellow> <gray>The answer was <white>{answer}</white>."
-    timed-out-hidden: "<yellow>Time's up!</yellow>"
+  events:
+    type-rush:
+      enabled: true
+      name: "Type Rush"
+      type: TYPE
+      weight: 12
+      cooldown-seconds: 1800
+      reward-profile: basic
+      values: ["bingo", "plexon", "diamond"]
+      prompt: "<gray>Type <yellow>\"{value}\"</yellow> before anyone else!</gray>"
 ```
 
-`NONE` is a valid sound. Invalid configured sounds reject the candidate. The hidden timeout template is used when answer reveal is disabled and must not expose `{answer}`.
+Supported types are TYPE, UNSCRAMBLE, MATH, TRIVIA, REVERSE and BINGO. `weight: 0` is manual-only. Every start respects enabled state, cooldown and eligibility.
 
-## Chat Events commands/permissions
+TYPE/REVERSE use `values`; UNSCRAMBLE uses `words`; MATH uses operations/bounds; TRIVIA uses explicit question/accepted-answer entries.
 
-| Command | Permission |
-| --- | --- |
-| `/chat events status` | `plexonchats.events` |
-| `/chat events list` | `plexonchats.events` |
-| `/chat events enable|disable` | `plexonchats.events.manage` |
-| `/chat events pause|resume` | `plexonchats.events.manage` |
-| `/chat events start <id\|random>` | `plexonchats.events.manage` |
-| `/chat events stop` | `plexonchats.events.manage` |
-| `/chat events preview <id>` | `plexonchats.events.manage` |
+## Bingo defaults
 
-`pause` is runtime-only. `preview` is private/non-playable and does not consume cooldown or grant a reward.
+```yaml
+chat-events:
+  bingo:
+    enabled: true
+    join:
+      duration-seconds: 15
+      min-participants: 2
+    board:
+      variant: BINGO_75
+      free-center: true
+    draw:
+      first-delay-seconds: 5
+      interval-seconds: 5
+      redraw-board-each-draw: false
+    timeout-seconds: 300
+    win-patterns: [ROW, COLUMN, DIAGONAL]
+```
+
+Per-definition overrides can be placed under `events.<id>.bingo`. The stable board variant is `BINGO_75`. Supported patterns are ROW, COLUMN, DIAGONAL, FOUR_CORNERS and FULL_HOUSE.
+
+See [BINGO.md](BINGO.md).
+
+## Persistent statistics
+
+Win statistics are stored in `chat-events.db` and are not YAML configuration. There is no synchronous DB query per chat message or per GUI render; command/GUI values are cache-backed.
+
+See [CHAT-EVENT-STATS.md](CHAT-EVENT-STATS.md).
+
+## Commands and permissions
+
+```text
+plexonchats.events                  default true
+plexonchats.events.bingo.play       default true
+plexonchats.events.stats.others     default op
+plexonchats.events.manage           default op
+```
+
+Player/read commands:
+
+```text
+/chat events
+/chat events status
+/chat events list
+/chat events stats [player]
+/chat events leaderboard
+/chat events bingo join <run-id>
+/chat events bingo card
+```
+
+Staff commands:
+
+```text
+/chat events enable|disable
+/chat events pause|resume
+/chat events start <id|random>
+/chat events stop
+/chat events preview <id>
+/chat events bingo status
+/chat events bingo participants
+```
+
+## Migration ownership rule
+
+`chat-events.events` is administrator-owned. v5 → v6 does not replace or reinterpret existing event definitions. If an old customized v5 configuration contains an event ID `bingo` whose stored type is TYPE, it remains TYPE. Fresh v6 defaults use `type-rush` for the TYPE example and `bingo-classic` for real Bingo.
 
 ## DiscordSRV
 
-DiscordSRV remains optional and isolated. Only approved GLOBAL Minecraft player chat can be exported. Discord-origin messages never count as Chat Event answers. Chat Event prompts/results are Minecraft-only in 3.3.0.
+DiscordSRV remains optional and isolated. Only approved GLOBAL player chat may be exported. Discord-origin traffic never counts as an ordinary Chat Event answer. Bingo participant messages are not routed through public chat.
 
-Configure DiscordSRV itself separately, then enable the PlexonChats adapter with `integrations.discordsrv`. LOCAL chat and PMs remain private.
+## Operational checks
 
-## Operational validation
-
-After configuration changes, check:
+After edits:
 
 ```text
 /chat status
 /chat diagnostics
 /chat events status
 /chat events list
-/chat events preview bingo
+/chat events preview type-rush
+/chat events preview bingo-classic
 ```
 
-Then test normal LOCAL/GLOBAL chat, PMs, GUI controls, auto-messages, and an event start/win/timeout/cancel sequence on staging. Repeated reloads must retain exactly one auto-message timer and one Chat Events coordinator rather than stacking tasks.
+Then staging-test normal chat, one normal event, statistics persistence across restart, and a two-player Bingo round including a non-participant who must receive no repeated draw traffic.

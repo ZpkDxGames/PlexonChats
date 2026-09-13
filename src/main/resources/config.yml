@@ -1,10 +1,10 @@
 # ============================================================
-# PlexonChats 3.3 — Chat Events / Paper 26.2 / Java 25
+# PlexonChats 3.4 — Enhanced Chat Events / Paper 26.2 / Java 25
 # All admin-owned text supports MiniMessage. UTF-8, spaces only.
 # /chat reload validates the complete candidate before activation.
 # Existing settings are retained, with a backup before schema migration.
 # ============================================================
-config-version: 5
+config-version: 6
 server-name: "Plexon"
 default-channel: LOCAL
 
@@ -110,9 +110,6 @@ item-display:
 preferences:
   save-interval-seconds: 60
 
-# GUI slots are zero-based. Actions include the normal player/admin actions plus:
-# OPEN_CHAT_EVENTS, TOGGLE_CHAT_EVENTS, PAUSE_CHAT_EVENTS, RESUME_CHAT_EVENTS,
-# START_RANDOM_CHAT_EVENT and STOP_CHAT_EVENT.
 gui:
   enabled: true
   title: "<gradient:#88beff:#b9d8ff><bold>PlexonChats</bold></gradient>"
@@ -226,7 +223,7 @@ gui:
         hide-without-permission: true
         material: BELL
         name: "<gold><bold>Chat Events</bold></gold>"
-        lore: ["<gray>Status <dark_gray>› <white>{events_status}", "<gray>Open the event control page."]
+        lore: ["<gray>Status <dark_gray>› <white>{events_status}", "<gray>Open the event dashboard."]
       back:
         slot: 22
         action: OPEN_MAIN
@@ -240,6 +237,8 @@ gui:
         name: "<red>Close"
         lore: []
 
+  # Kept for v5 migration compatibility. PlexonChats 3.4 renders the Events dashboard
+  # programmatically so live state, pagination and stale-run protection are authoritative.
   events:
     title: "<gradient:#ffd66b:#ff9f43><bold>Chat Events</bold></gradient>"
     rows: 3
@@ -392,9 +391,10 @@ auto-messages:
           delivery: CHAT
           lines: ["<gradient:#6ea8ff:#88d8ff><bold>PLEXON</bold></gradient> <dark_gray>» <gray>Be kind, enjoy the server, and help new players feel welcome."]
 
-# One lightweight coordinator services all definitions. Only one run may be active.
+# One coordinator services all definitions. Only one Chat Event run may exist at once.
 chat-events:
   enabled: true
+
   scheduler:
     enabled: true
     initial-delay-seconds: 180
@@ -403,6 +403,7 @@ chat-events:
     min-online: 1
     avoid-immediate-repeat: true
     pause-when-empty: true
+
   defaults:
     duration-seconds: 30
     reveal-answer-on-timeout: true
@@ -417,6 +418,85 @@ chat-events:
       collapse-whitespace: true
       unicode-normalization: NFKC
       ignore-diacritics: false
+
+  presentation:
+    blank-lines-before: 1
+    blank-lines-after: 1
+    separator: "<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>"
+    type-names:
+      TYPE: "Type Rush"
+      UNSCRAMBLE: "Unscramble"
+      MATH: "Quick Math"
+      TRIVIA: "Trivia"
+      REVERSE: "Reverse"
+      BINGO: "Bingo"
+    start:
+      - "{separator}"
+      - "<gradient:#55ffff:#1597ff><bold>CHAT EVENT</bold></gradient> <dark_gray>•</dark_gray> <aqua>{event_name}</aqua>"
+      - "<gray>{description}</gray>"
+      - ""
+      - "<white>{prompt}</white>"
+      - ""
+      - "<gray>Reward:</gray> <gold>{reward}</gold>"
+      - "<gray>Time:</gray> <yellow>{duration_seconds}s</yellow>"
+      - "{separator}"
+    winner:
+      - "{separator}"
+      - "<green><bold>CHAT EVENT COMPLETE</bold></green>"
+      - "<white>{winner}</white> <gray>won in</gray> <aqua>{elapsed}</aqua>"
+      - "<gray>Reward:</gray> <gold>{reward}</gold>"
+      - "<gray>Total wins:</gray> <yellow>{winner_total_wins}</yellow>"
+      - "<gray>{event_type} wins:</gray> <yellow>{winner_type_wins}</yellow>"
+      - "{separator}"
+    timeout:
+      - "{separator}"
+      - "<yellow><bold>CHAT EVENT ENDED</bold></yellow>"
+      - "<gray>No winner this round.</gray>"
+      - "<gray>Answer:</gray> <white>{answer}</white>"
+      - "{separator}"
+    cancelled:
+      - "{separator}"
+      - "<gray><bold>CHAT EVENT CANCELLED</bold></gray>"
+      - "<gray>No reward or win statistic was issued.</gray>"
+      - "{separator}"
+
+  bingo:
+    enabled: true
+    join:
+      duration-seconds: 15
+      min-participants: 2
+    board:
+      variant: BINGO_75
+      free-center: true
+    draw:
+      first-delay-seconds: 5
+      interval-seconds: 5
+      redraw-board-each-draw: false
+    timeout-seconds: 300
+    win-patterns: [ROW, COLUMN, DIAGONAL]
+    messages:
+      join-open:
+        - "{separator}"
+        - "<gold><bold>BINGO</bold></gold>"
+        - "<gray>A new Bingo round is starting!</gray>"
+        - ""
+        - "{join_button}"
+        - ""
+        - "<gray>Join closes in:</gray> <yellow>{join_seconds}s</yellow>"
+        - "<gray>Reward:</gray> <gold>{reward}</gold>"
+        - "{separator}"
+      joined:
+        - "<green>You joined this Bingo round.</green>"
+        - "<gray>Your card is shown below.</gray>"
+      draw:
+        - "<gold>[BINGO]</gold> <gray>Draw</gray> <yellow>#{draw_count}</yellow><gray>:</gray> <white>{drawn_number}</white> <dark_gray>•</dark_gray> {open_card_button}"
+      marked:
+        - "<gold>[BINGO]</gold> <green>Marked {drawn_number}.</green>"
+      invalid-mark:
+        - "<gold>[BINGO]</gold> <red>That cell cannot be marked yet.</red>"
+      not-participant:
+        - "<red>You are not participating in this Bingo round.</red>"
+
   reward-profiles:
     basic:
       economy:
@@ -445,25 +525,29 @@ chat-events:
         tier: EPIC
         amount: 1
       console-commands: []
+
   events:
-    bingo:
+    type-rush:
       enabled: true
+      name: "Type Rush"
       type: TYPE
       weight: 12
       cooldown-seconds: 1800
       reward-profile: basic
       values: ["bingo", "plexon", "diamond", "redstone"]
-      prompt: "<gold><bold>CHAT EVENT</bold></gold> <dark_gray>» <gray>Type <yellow>\"{value}\"</yellow> first!"
+      prompt: "<gray>Type <yellow>\"{value}\"</yellow> before anyone else!</gray>"
     unscramble:
       enabled: true
+      name: "Unscramble"
       type: UNSCRAMBLE
       weight: 10
       cooldown-seconds: 1800
       reward-profile: rare
       words: ["diamond", "redstone", "village", "elytra", "netherite"]
-      prompt: "<gold><bold>CHAT EVENT</bold></gold> <dark_gray>» <gray>Unscramble <aqua>{scrambled}</aqua>!"
+      prompt: "<gray>Unscramble <aqua>{scrambled}</aqua>!</gray>"
     math-normal:
       enabled: true
+      name: "Quick Math"
       type: MATH
       weight: 10
       cooldown-seconds: 1200
@@ -472,9 +556,10 @@ chat-events:
       min-operand: 2
       max-operand: 25
       allow-negative-result: false
-      prompt: "<gold><bold>CHAT EVENT</bold></gold> <dark_gray>» <gray>What's <aqua>{expression}</aqua>?"
+      prompt: "<gray>What's <aqua>{expression}</aqua>?</gray>"
     math-hard:
       enabled: true
+      name: "Hard Math"
       type: MATH
       weight: 4
       cooldown-seconds: 3600
@@ -483,9 +568,10 @@ chat-events:
       min-operand: 8
       max-operand: 75
       allow-negative-result: false
-      prompt: "<gold><bold>CHAT EVENT</bold></gold> <dark_gray>» <gray>Solve <red>{expression}</red>!"
+      prompt: "<gray>Solve <red>{expression}</red>!</gray>"
     trivia:
       enabled: true
+      name: "Trivia"
       type: TRIVIA
       weight: 6
       cooldown-seconds: 2400
@@ -495,15 +581,37 @@ chat-events:
           accepted-answers: ["the end", "end"]
         - question: "Which ore is required to craft an enchanting table?"
           accepted-answers: ["diamond", "diamonds"]
-      prompt: "<gold><bold>CHAT EVENT</bold></gold> <dark_gray>» <gray>{question}"
+      prompt: "<gray>{question}</gray>"
     reverse:
       enabled: true
+      name: "Reverse"
       type: REVERSE
       weight: 6
       cooldown-seconds: 1800
       reward-profile: basic
       values: ["craft", "redstone", "plexon", "diamond"]
-      prompt: "<gold><bold>CHAT EVENT</bold></gold> <dark_gray>» <gray>Reverse <aqua>{value}</aqua>!"
+      prompt: "<gray>Reverse <aqua>{value}</aqua>!</gray>"
+    bingo-classic:
+      enabled: true
+      name: "Classic Bingo"
+      type: BINGO
+      weight: 5
+      cooldown-seconds: 3600
+      reward-profile: epic
+      min-online: 3
+      bingo:
+        join-seconds: 15
+        min-participants: 2
+        board:
+          variant: BINGO_75
+          free-center: true
+        draw:
+          first-delay-seconds: 5
+          interval-seconds: 5
+          redraw-board-each-draw: false
+        timeout-seconds: 300
+        win-patterns: [ROW, COLUMN, DIAGONAL]
+
   sounds:
     start:
       sound: BLOCK_NOTE_BLOCK_PLING
@@ -517,6 +625,9 @@ chat-events:
       sound: BLOCK_NOTE_BLOCK_BASS
       volume: 1.0
       pitch: 1.0
+
+  # Legacy one-line message keys remain accepted for v5 compatibility. New v6 event
+  # cards are controlled under chat-events.presentation and Bingo under chat-events.bingo.messages.
   messages:
     prefix: "<bold><gradient:#ffd66b:#ff9f43>Chat Event</gradient></bold> <dark_gray>» "
     started: "{prompt}"

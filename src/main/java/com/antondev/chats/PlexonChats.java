@@ -33,6 +33,7 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.server.PluginDisableEvent;
 import org.bukkit.event.server.PluginEnableEvent;
 import org.bukkit.plugin.ServicePriority;
@@ -193,6 +194,11 @@ public class PlexonChats extends JavaPlugin implements Listener {
             if (chatEvents != null) chatEvents.refreshIntegrations();
         } else return;
         publishCoreHealth();
+    }
+
+    @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        if (chatEvents != null) chatEvents.onPlayerJoin(event.getPlayer());
     }
 
     public void publishCoreHealth() {

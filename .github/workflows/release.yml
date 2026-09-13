@@ -54,7 +54,7 @@ jobs:
           case "${VERSION}" in *-*) echo "Stable workflow refuses prerelease version: ${VERSION}" >&2; exit 1;; esac
           git fetch origin main
           test "${GITHUB_SHA}" = "$(git rev-parse origin/main)"
-          git merge-base --is-ancestor f88d15263ea4e43c0228de0cae281e3940bfd36e HEAD
+          git merge-base --is-ancestor 8b79743c5e8f1751031b0988ff927fdc17fa93ed HEAD
           test -s ".release/${VERSION}.md"
           if gh release view "v${VERSION}" >/dev/null 2>&1; then echo "v${VERSION} release already exists" >&2; exit 1; fi
           if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null 2>&1; then echo "v${VERSION} tag already exists" >&2; exit 1; fi
@@ -104,7 +104,16 @@ jobs:
             com/antondev/chats/event/ChatEventManager.class \
             com/antondev/chats/event/ChatEventEngine.class \
             com/antondev/chats/event/ChatEventConfig.class \
-            com/antondev/chats/event/ChatEventRewardService.class; do
+            com/antondev/chats/event/ChatEventPresentation.class \
+            com/antondev/chats/event/ChatEventRewardService.class \
+            com/antondev/chats/event/ChatEventStatisticsService.class \
+            com/antondev/chats/event/bingo/BingoSession.class \
+            com/antondev/chats/event/bingo/BingoBoard.class \
+            com/antondev/chats/event/bingo/BingoBoardGenerator.class \
+            com/antondev/chats/event/bingo/BingoRenderer.class \
+            com/antondev/chats/event/bingo/BingoPattern.class \
+            com/antondev/chats/storage/ChatEventDatabase.class \
+            org/sqlite/JDBC.class; do
             grep -qx "${resource}" target/jar-contents.txt
           done
           for prefix in \
@@ -135,8 +144,8 @@ jobs:
           commit=${GITHUB_SHA}
           tag=v${VERSION}
           version=${VERSION}
-          rollback_tag=v3.2.0
-          rollback_sha=f88d15263ea4e43c0228de0cae281e3940bfd36e
+          rollback_tag=v3.3.0
+          rollback_sha=8b79743c5e8f1751031b0988ff927fdc17fa93ed
           java=25
           class_major=69
           paper=26.2.build.121-stable

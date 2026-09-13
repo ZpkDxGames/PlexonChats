@@ -75,11 +75,17 @@ permissions:
     description: Allows sending private messages
     default: true
   plexonchats.events:
-    description: View Chat Events status, list and help
+    description: View Chat Events, personal statistics, leaderboard and Bingo participation
+    default: true
+  plexonchats.events.stats.others:
+    description: Inspect another player's Chat Event statistics
     default: op
   plexonchats.events.manage:
-    description: Enable, disable, pause, resume, start, stop and preview Chat Events
+    description: Enable, disable, pause, resume, start, stop, preview and administer Chat Events
     default: op
+  plexonchats.events.bingo.play:
+    description: Join and interact with Bingo Chat Events
+    default: true
   plexonchats.admin:
     description: Full admin access to PlexonChats
     default: op
@@ -96,7 +102,9 @@ permissions:
       plexonchats.manage: true
       plexonchats.automessages: true
       plexonchats.events: true
+      plexonchats.events.stats.others: true
       plexonchats.events.manage: true
+      plexonchats.events.bingo.play: true
       plexonchats.formatting: true
       plexonchats.formatting.advanced: true
       plexonchats.bypass.cooldown: true

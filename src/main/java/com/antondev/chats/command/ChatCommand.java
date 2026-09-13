@@ -5,6 +5,8 @@ import com.antondev.chats.PlexonChats;
 import com.antondev.chats.api.PlexonChatsAPI;
 import com.antondev.chats.diagnostics.ChatDiagnostics;
 import com.antondev.chats.event.ChatEventManager;
+import com.antondev.chats.event.ChatEventStatisticsService;
+import com.antondev.chats.event.bingo.BingoSession;
 import com.antondev.chats.gui.ChatGUIHolder;
 import com.antondev.chats.integration.core.CoreBridge;
 import net.kyori.adventure.text.Component;
@@ -17,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 public final class ChatCommand implements CommandExecutor, TabCompleter {
     private final PlexonChats plugin;
@@ -76,6 +79,7 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
                 .filter(player -> player.getOpenInventory().getTopInventory().getHolder() instanceof ChatGUIHolder).count();
         String papi = Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI") ? "READY" : "NOT INSTALLED";
         ChatEventManager events = plugin.getChatEvents();
+        ChatEventStatisticsService stats = events.statistics();
 
         sender.sendMessage(Component.text("PlexonChats Diagnostics"));
         diagnostic(sender, "Plugin", plugin.getPluginMeta().getVersion());
@@ -110,12 +114,28 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
         diagnostic(sender, "Configured events", String.valueOf(events.configuredCount()));
         diagnostic(sender, "Eligible scheduled events", String.valueOf(events.eligibleScheduledCount()));
         diagnostic(sender, "Active event", events.activeId() + (events.hasActiveEvent() ? "/" + events.activeType() : ""));
+        diagnostic(sender, "Active run", events.activeRunId() == null ? "-" : events.activeRunId().toString());
         diagnostic(sender, "Active event remaining", events.remainingMillis() < 0 ? "-" : String.format(Locale.ROOT, "%.1fs", events.remainingMillis() / 1000.0));
         diagnostic(sender, "Last event", events.lastEvent());
         diagnostic(sender, "Last winner", events.lastWinner());
         diagnostic(sender, "Economy rewards", events.economyState());
         diagnostic(sender, "PlexonKeys rewards", events.keysState());
         diagnostic(sender, "Recent Chat Events failure", events.recentFailure());
+        diagnostic(sender, "Chat Events DB", stats.state().name());
+        diagnostic(sender, "Chat Events DB file", stats.file().toString());
+        diagnostic(sender, "Chat Events DB schema", String.valueOf(stats.schemaVersion()));
+        diagnostic(sender, "Chat Events DB executor", stats.executorState());
+        diagnostic(sender, "Chat Events DB pending writes", String.valueOf(stats.pendingWrites()));
+        diagnostic(sender, "Chat Events DB last write", stats.lastWriteSuccessText());
+        diagnostic(sender, "Chat Events DB last failure", stats.lastFailure());
+        diagnostic(sender, "Recorded Chat Event wins", String.valueOf(stats.totalRecordedWins()));
+        diagnostic(sender, "Cached event players", String.valueOf(stats.cachedPlayerCount()));
+        diagnostic(sender, "Bingo enabled", String.valueOf(events.definitions().values().stream().anyMatch(value -> value.type().name().equals("BINGO") && value.bingo().enabled())));
+        diagnostic(sender, "Bingo phase", events.bingoPhase());
+        diagnostic(sender, "Bingo participants", String.valueOf(events.bingoParticipantCount()));
+        diagnostic(sender, "Bingo draws", String.valueOf(events.bingoDrawCount()));
+        diagnostic(sender, "Bingo last draw", events.bingoLastDraw());
+        diagnostic(sender, "Bingo remaining pool", String.valueOf(events.bingoRemainingCount()));
         diagnostic(sender, "Item preview tokens", String.valueOf(plugin.getItemPreviewManager().size()));
         diagnostic(sender, "Item cleanup task", state(plugin.cleanupTaskActive()));
         diagnostic(sender, "GUI sessions", String.valueOf(guiSessions));
@@ -130,47 +150,126 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
     private static String state(boolean active) { return active ? "ACTIVE" : "INACTIVE"; }
 
     private void chatEvents(CommandSender sender, String[] args) {
-        String action = args.length > 1 ? args[1].toLowerCase(Locale.ROOT) : "status";
-        boolean readOnly = action.equals("status") || action.equals("list");
-        if (!permission(sender, readOnly ? "plexonchats.events" : "plexonchats.events.manage")) return;
+        if (!permission(sender, "plexonchats.events")) return;
         ChatEventManager events = plugin.getChatEvents();
+        if (args.length == 1) {
+            if (sender instanceof Player player) plugin.getChatGUI().openPage(player, ChatGUIHolder.Page.EVENTS);
+            else eventStatus(sender, events);
+            return;
+        }
+        String action = args[1].toLowerCase(Locale.ROOT);
         switch (action) {
-            case "status" -> {
-                sender.sendMessage(Component.text("Chat Events status"));
-                diagnostic(sender, "Master", events.enabled() ? "ENABLED" : "DISABLED");
-                diagnostic(sender, "Scheduler configured", events.schedulerEnabled() ? "ENABLED" : "DISABLED");
-                diagnostic(sender, "Runtime pause", events.paused() ? "PAUSED" : "RUNNING");
-                diagnostic(sender, "Coordinator task", events.taskActive() ? "ACTIVE" : "INACTIVE");
-                diagnostic(sender, "Active", events.activeId() + (events.hasActiveEvent() ? "/" + events.activeType() : ""));
-                diagnostic(sender, "Remaining", events.remainingMillis() < 0 ? "-" : events.remainingMillis() + "ms");
-                diagnostic(sender, "Eligible definitions", String.valueOf(events.eligibleScheduledCount()));
-                diagnostic(sender, "Last event", events.lastEvent());
-                diagnostic(sender, "Last winner", events.lastWinner());
-                diagnostic(sender, "Economy", events.economyState());
-                diagnostic(sender, "PlexonKeys", events.keysState());
-            }
+            case "status" -> eventStatus(sender, events);
             case "list" -> {
                 sender.sendMessage(Component.text("Configured Chat Events"));
                 events.listStatus().forEach(line -> sender.sendMessage(Component.text(" • " + line)));
             }
+            case "stats" -> eventStats(sender, args, events);
+            case "leaderboard" -> eventLeaderboard(sender, events);
+            case "bingo" -> bingo(sender, args, events);
             case "enable", "disable" -> {
+                if (!permission(sender, "plexonchats.events.manage")) return;
                 boolean desired = action.equals("enable");
                 boolean ok = plugin.getConfigManager().saveSetting("chat-events.enabled", desired) && plugin.reloadPlugin();
                 sender.sendMessage(Component.text(ok ? "Chat Events " + (desired ? "enabled." : "disabled.") : "Chat Events configuration change failed."));
             }
-            case "pause" -> { events.pause(); sender.sendMessage(Component.text("Chat Events automatic scheduling paused for this runtime.")); }
-            case "resume" -> { events.resume(); sender.sendMessage(Component.text("Chat Events automatic scheduling resumed.")); }
+            case "pause" -> { if (permission(sender, "plexonchats.events.manage")) { events.pause(); sender.sendMessage(Component.text("Chat Events automatic scheduling paused for this runtime.")); } }
+            case "resume" -> { if (permission(sender, "plexonchats.events.manage")) { events.resume(); sender.sendMessage(Component.text("Chat Events automatic scheduling resumed.")); } }
             case "start" -> {
+                if (!permission(sender, "plexonchats.events.manage")) return;
                 if (args.length < 3) { sender.sendMessage(Component.text("Usage: /chat events start <event-id|random>")); return; }
                 ChatEventManager.StartStatus result = args[2].equalsIgnoreCase("random") ? events.startRandom(false) : events.start(args[2]);
                 sender.sendMessage(Component.text("Chat Event start: " + result));
             }
-            case "stop" -> sender.sendMessage(Component.text(events.stop() ? "Active Chat Event cancelled without reward." : "No active Chat Event."));
+            case "stop" -> {
+                if (permission(sender, "plexonchats.events.manage")) sender.sendMessage(Component.text(events.stop() ? "Active Chat Event cancelled without reward." : "No active Chat Event."));
+            }
             case "preview" -> {
+                if (!permission(sender, "plexonchats.events.manage")) return;
                 if (args.length < 3) sender.sendMessage(Component.text("Usage: /chat events preview <event-id>"));
                 else events.preview(args[2], sender);
             }
-            default -> sender.sendMessage(Component.text("Usage: /chat events <status|list|enable|disable|pause|resume|start|stop|preview>"));
+            default -> sender.sendMessage(Component.text("Usage: /chat events [status|list|stats|leaderboard|bingo|enable|disable|pause|resume|start|stop|preview]"));
+        }
+    }
+
+    private void eventStatus(CommandSender sender, ChatEventManager events) {
+        sender.sendMessage(Component.text("Chat Events status"));
+        diagnostic(sender, "Master", events.enabled() ? "ENABLED" : "DISABLED");
+        diagnostic(sender, "Scheduler configured", events.schedulerEnabled() ? "ENABLED" : "DISABLED");
+        diagnostic(sender, "Runtime pause", events.paused() ? "PAUSED" : "RUNNING");
+        diagnostic(sender, "Coordinator task", events.taskActive() ? "ACTIVE" : "INACTIVE");
+        diagnostic(sender, "Active", events.activeId() + (events.hasActiveEvent() ? "/" + events.activeType() : ""));
+        diagnostic(sender, "Remaining", events.remainingMillis() < 0 ? "-" : events.remainingMillis() + "ms");
+        diagnostic(sender, "Eligible definitions", String.valueOf(events.eligibleScheduledCount()));
+        diagnostic(sender, "Last event", events.lastEvent());
+        diagnostic(sender, "Last winner", events.lastWinner());
+        diagnostic(sender, "Economy", events.economyState());
+        diagnostic(sender, "PlexonKeys", events.keysState());
+    }
+
+    private void eventStats(CommandSender sender, String[] args, ChatEventManager events) {
+        ChatEventStatisticsService.PlayerStats stats;
+        if (args.length >= 3) {
+            if (!permission(sender, "plexonchats.events.stats.others")) return;
+            Player online = Bukkit.getPlayerExact(args[2]);
+            stats = online != null ? events.statistics().get(online.getUniqueId(), online.getName()) : events.statistics().getByName(args[2]);
+            if (stats == null) { sender.sendMessage(Component.text("No Chat Event statistics found for " + args[2] + ".")); return; }
+        } else {
+            if (!(sender instanceof Player player)) { sender.sendMessage(Component.text("Usage: /chat events stats <player>")); return; }
+            stats = events.statistics().get(player.getUniqueId(), player.getName());
+        }
+        sender.sendMessage(Component.text("Chat Event statistics — " + stats.playerName()));
+        diagnostic(sender, "Total wins", Long.toString(stats.totalWins()));
+        for (var type : com.antondev.chats.event.ChatEventEngine.Type.values()) diagnostic(sender, type.name() + " wins", Long.toString(stats.typeWins(type.name())));
+        diagnostic(sender, "Last win", stats.lastWinAt() == null ? "-" : java.time.Instant.ofEpochMilli(stats.lastWinAt()).toString());
+    }
+
+    private void eventLeaderboard(CommandSender sender, ChatEventManager events) {
+        sender.sendMessage(Component.text("Chat Event leaderboard"));
+        List<ChatEventStatisticsService.PlayerStats> top = events.statistics().getTopPlayers(10);
+        if (top.isEmpty()) { sender.sendMessage(Component.text(" • No wins recorded yet.")); return; }
+        for (int index = 0; index < top.size(); index++) {
+            ChatEventStatisticsService.PlayerStats stats = top.get(index);
+            sender.sendMessage(Component.text(" " + (index + 1) + ". " + stats.playerName() + " — " + stats.totalWins() + " wins"));
+        }
+    }
+
+    private void bingo(CommandSender sender, String[] args, ChatEventManager events) {
+        String sub = args.length >= 3 ? args[2].toLowerCase(Locale.ROOT) : "status";
+        switch (sub) {
+            case "join" -> {
+                if (!(sender instanceof Player player)) { sender.sendMessage(plugin.getConfigManager().getPlayerOnly()); return; }
+                if (!permission(sender, "plexonchats.events.bingo.play")) return;
+                if (args.length < 4) { sender.sendMessage(Component.text("Usage: /chat events bingo join <run-id>")); return; }
+                try { events.bingoJoin(player, UUID.fromString(args[3])); }
+                catch (IllegalArgumentException ex) { sender.sendMessage(Component.text("That Bingo run ID is invalid.")); }
+            }
+            case "card" -> {
+                if (!(sender instanceof Player player)) { sender.sendMessage(plugin.getConfigManager().getPlayerOnly()); return; }
+                if (!permission(sender, "plexonchats.events.bingo.play")) return;
+                if (!events.showBingoCard(player)) sender.sendMessage(Component.text("You are not participating in an active Bingo round."));
+            }
+            case "mark" -> {
+                if (!(sender instanceof Player player)) { sender.sendMessage(plugin.getConfigManager().getPlayerOnly()); return; }
+                if (!permission(sender, "plexonchats.events.bingo.play")) return;
+                if (args.length < 5) { sender.sendMessage(Component.text("That Bingo action is incomplete.")); return; }
+                try { events.bingoMark(player, UUID.fromString(args[3]), Integer.parseInt(args[4])); }
+                catch (IllegalArgumentException ex) { sender.sendMessage(Component.text("That Bingo action is invalid.")); }
+            }
+            case "status" -> {
+                if (!permission(sender, "plexonchats.events.manage")) return;
+                diagnostic(sender, "Bingo phase", events.bingoPhase());
+                diagnostic(sender, "Participants", String.valueOf(events.bingoParticipantCount()));
+                diagnostic(sender, "Draw count", String.valueOf(events.bingoDrawCount()));
+                diagnostic(sender, "Last draw", events.bingoLastDraw());
+                diagnostic(sender, "Remaining pool", String.valueOf(events.bingoRemainingCount()));
+            }
+            case "participants" -> {
+                if (!permission(sender, "plexonchats.events.manage")) return;
+                sender.sendMessage(Component.text("Bingo participants: " + (events.bingoParticipants().isEmpty() ? "none" : String.join(", ", events.bingoParticipants()))));
+            }
+            default -> sender.sendMessage(Component.text("Usage: /chat events bingo <join|card|status|participants>"));
         }
     }
 
@@ -215,7 +314,7 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
         helpLine(sender, "plexonchats.manage", "/chat admin, /chat status and /chat diagnostics — Administration");
         helpLine(sender, "plexonchats.reload", "/chat reload — Transactional configuration reload");
         helpLine(sender, "plexonchats.automessages", "/chat automessages <list|enable|disable|pause|resume|send|test|preview> [group]");
-        helpLine(sender, "plexonchats.events", "/chat events <status|list> — Chat Events state");
+        helpLine(sender, "plexonchats.events", "/chat events — Event dashboard, stats and leaderboard");
         helpLine(sender, "plexonchats.events.manage", "/chat events <enable|disable|pause|resume|start|stop|preview> — Chat Events administration");
     }
     private void helpLine(CommandSender sender, String permission, String value) { if (sender.hasPermission(permission)) sender.sendMessage(Component.text(" • " + value)); }
@@ -240,12 +339,16 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
             else if (args.length == 3 && List.of("send", "test", "preview").contains(args[1].toLowerCase(Locale.ROOT))) options.addAll(plugin.getAutoMessages().groupNames());
         } else if (List.of("events", "event").contains(root) && sender.hasPermission("plexonchats.events")) {
             if (args.length == 2) {
-                options.addAll(List.of("status", "list"));
+                options.addAll(List.of("status", "list", "stats", "leaderboard", "bingo"));
                 if (sender.hasPermission("plexonchats.events.manage")) options.addAll(List.of("enable", "disable", "pause", "resume", "start", "stop", "preview"));
-            } else if (args.length == 3 && sender.hasPermission("plexonchats.events.manage")) {
+            } else if (args.length == 3) {
                 String action = args[1].toLowerCase(Locale.ROOT);
-                if (action.equals("start")) { options.add("random"); options.addAll(plugin.getChatEvents().eventIds()); }
-                else if (action.equals("preview")) options.addAll(plugin.getChatEvents().eventIds());
+                if (action.equals("start") && sender.hasPermission("plexonchats.events.manage")) { options.add("random"); options.addAll(plugin.getChatEvents().eventIds()); }
+                else if (action.equals("preview") && sender.hasPermission("plexonchats.events.manage")) options.addAll(plugin.getChatEvents().eventIds());
+                else if (action.equals("bingo")) {
+                    if (sender.hasPermission("plexonchats.events.bingo.play")) options.add("card");
+                    if (sender.hasPermission("plexonchats.events.manage")) options.addAll(List.of("status", "participants"));
+                }
             }
         }
         String query = args[args.length - 1].toLowerCase(Locale.ROOT);

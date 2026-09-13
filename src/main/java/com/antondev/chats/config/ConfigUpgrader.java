@@ -7,16 +7,17 @@ import java.util.Set;
 
 /** Adds new options without overwriting existing values or restoring deleted custom entries. */
 public final class ConfigUpgrader {
-    public static final int VERSION = 5;
+    public static final int VERSION = 6;
     private static final Set<String> USER_COLLECTIONS = Set.of(
-            "gui.items", "gui.admin.items", "gui.creator.items", "auto-messages.groups");
+            "gui.items", "gui.admin.items", "gui.events.items", "gui.creator.items", "auto-messages.groups",
+            "chat-events.events");
     private ConfigUpgrader() {}
 
     public static boolean upgrade(YamlConfiguration current, YamlConfiguration defaults) {
         boolean upgraded = current.getInt("config-version", 1) < VERSION;
         if (upgraded) {
             merge(current, defaults, "");
-            // gui.admin.items is a user-owned collection, so add only the new 3.3 entry without restoring removed legacy buttons.
+            // Preserve administrator-owned GUI collections. Add only cross-page entry points that are known-safe.
             copySectionIfMissing(current, defaults, "gui.admin.items.chat-events");
             current.set("config-version", VERSION);
         }
