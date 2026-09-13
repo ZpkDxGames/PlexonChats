@@ -28,6 +28,38 @@ class ChatEventPresentationTest extends PluginTestBase {
         assertTrue(rendered.stream().map(plain::serialize).anyMatch(line -> line.contains("Type something")));
     }
 
+    @Test void migratedStockCardsAreCompactAndInteractive() {
+        ChatEventConfig config = ChatEventConfig.read(plugin.getConfigManager().section("chat-events"));
+        ChatEventPresentation renderer = new ChatEventPresentation();
+        Map<String, Component> values = standardValues();
+
+        List<Component> start = renderer.render(config, "start", values);
+        String startText = joined(start);
+        assertTrue(startText.contains("✦ Type Rush"));
+        assertTrue(startText.contains("◆ $500"));
+        assertTrue(startText.contains("⏱ 30s"));
+        assertFalse(startText.contains("CHAT EVENT"));
+        assertFalse(startText.contains("Reward:"));
+        assertFalse(startText.contains("Time:"));
+        assertTrue(start.stream().anyMatch(this::hasHover));
+
+        List<Component> winner = renderer.render(config, "winner", values);
+        String winnerText = joined(winner);
+        assertTrue(winnerText.contains("✔ Type Rush COMPLETE"));
+        assertTrue(winnerText.contains("♛ Tonim"));
+        assertTrue(winnerText.contains("Answer: answer"));
+        assertFalse(winnerText.contains("Total wins:"));
+        assertTrue(winner.stream().anyMatch(this::hasHover));
+
+        String timeoutText = joined(renderer.render(config, "timeout", values));
+        assertTrue(timeoutText.contains("⌛ Type Rush EXPIRED"));
+        assertFalse(timeoutText.contains("CHAT EVENT ENDED"));
+
+        String cancelledText = joined(renderer.render(config, "cancelled", values));
+        assertTrue(cancelledText.contains("✕ Type Rush CANCELLED"));
+        assertFalse(cancelledText.contains("No reward or win statistic was issued"));
+    }
+
     @Test void dynamicPlayerControlledTextIsInsertedAsLiteralComponentData() {
         ChatEventConfig config = ChatEventConfig.read(plugin.getConfigManager().section("chat-events"));
         ChatEventPresentation renderer = new ChatEventPresentation();
@@ -45,6 +77,15 @@ class ChatEventPresentationTest extends PluginTestBase {
         yaml.set("chat-events.presentation.blank-lines-before", 1);
         yaml.set("chat-events.presentation.start", List.of("<red>unclosed strict tag"));
         assertThrows(IllegalArgumentException.class, () -> ChatEventValidation.validate(yaml.getConfigurationSection("chat-events")));
+    }
+
+    private String joined(List<Component> components) {
+        return components.stream().map(plain::serialize).reduce("", (left, right) -> left + "\n" + right);
+    }
+
+    private boolean hasHover(Component component) {
+        if (component.hoverEvent() != null) return true;
+        return component.children().stream().anyMatch(this::hasHover);
     }
 
     private static Map<String, Component> standardValues() {
