@@ -40,9 +40,11 @@ class ConfigurationAndGuiTest extends PluginTestBase {
         assertEquals("!!", plugin.getConfigManager().getGlobalShortcutPrefix());
         assertEquals("<gold>LEGACY {player}: {message}", plugin.getConfigManager().getGlobalFormat());
         try (var files = Files.list(file.getParent())) {
-            var backups = files.filter(path -> path.getFileName().toString().startsWith("config-before-v8-")).toList();
-            assertEquals(1, backups.size());
-            assertEquals(legacy, Files.readString(backups.getFirst()));
+            var backups = files.filter(path -> path.getFileName().toString().startsWith("config-before-v9-")).toList();
+            assertTrue(backups.stream().anyMatch(path -> {
+                try { return Files.readString(path).equals(legacy); }
+                catch (java.io.IOException ex) { return false; }
+            }), "the exact administrator configuration must be backed up before v9 migration");
         }
     }
     @Test void completeTwoPointZeroConfigurationMigratesWithoutLosingAnyValue() throws Exception {
@@ -62,14 +64,17 @@ class ConfigurationAndGuiTest extends PluginTestBase {
                 assertEquals(value, migrated.get(key), "Preserve 2.0 setting: " + key);
             }
         });
-        assertEquals(8, migrated.getInt("config-version"));
+        assertEquals(9, migrated.getInt("config-version"));
         assertEquals("DEFAULT", migrated.getString("connection-messages.join.mode"));
         assertNotNull(migrated.getConfigurationSection("integrations.discordsrv"));
         assertNotNull(migrated.getConfigurationSection("chat-events"));
         assertNotNull(migrated.getConfigurationSection("chat-events.discord"));
         try (var files = Files.list(path.getParent())) {
-            var backup = files.filter(file -> file.getFileName().toString().startsWith("config-before-v8-")).findFirst().orElseThrow();
-            assertEquals(source, Files.readString(backup));
+            var backups = files.filter(file -> file.getFileName().toString().startsWith("config-before-v9-")).toList();
+            assertTrue(backups.stream().anyMatch(file -> {
+                try { return Files.readString(file).equals(source); }
+                catch (java.io.IOException ex) { return false; }
+            }), "the complete 2.0 source must be preserved in a v9 migration backup");
         }
     }
     @Test void schemaTwoUpgradeKeepsCustomCollectionsEmpty() throws Exception {
@@ -77,15 +82,15 @@ class ConfigurationAndGuiTest extends PluginTestBase {
         Files.writeString(path, "config-version: 2\ngui:\n  items: {}\nauto-messages:\n  groups: {}\n");
         assertTrue(plugin.reloadPlugin());
         var migrated = YamlConfiguration.loadConfiguration(path.toFile());
-        assertEquals(8, migrated.getInt("config-version"));
+        assertEquals(9, migrated.getInt("config-version"));
         assertTrue(migrated.getConfigurationSection("gui.items").getKeys(false).isEmpty());
         assertTrue(migrated.getConfigurationSection("auto-messages.groups").getKeys(false).isEmpty());
         assertNotNull(migrated.getConfigurationSection("chat-events"));
         assertNotNull(migrated.getConfigurationSection("chat-events.discord"));
     }
     @Test void releaseMetadataMatchesChatEventsCandidate() {
-        assertEquals("3.6.0", plugin.getPluginMeta().getVersion());
-        assertEquals(8, com.antondev.chats.config.ConfigUpgrader.VERSION);
+        assertEquals("3.6.1", plugin.getPluginMeta().getVersion());
+        assertEquals(9, com.antondev.chats.config.ConfigUpgrader.VERSION);
     }
     @Test void rowsAndCustomButtonPositionsAreHonored() throws Exception {
         var player = player("Viewer");

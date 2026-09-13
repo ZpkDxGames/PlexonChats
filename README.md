@@ -1,6 +1,6 @@
 # PlexonChats
 
-PlexonChats **3.6.0** is the stable Plexon communication plugin for Paper 26.2 / Java 25. It owns LOCAL/GLOBAL public chat, private messages, safe MiniMessage presentation, GUI/preferences, scheduled messages, persistent Chat Events, shared claim-based Bingo, diagnostics, optional DiscordSRV chat bridging, and stateful Discord Chat Event embeds.
+PlexonChats **3.6.1** is the stable Plexon communication plugin for Paper 26.2 / Java 25. It owns LOCAL/GLOBAL public chat, private messages, safe MiniMessage presentation, GUI/preferences, scheduled messages, persistent Chat Events, shared claim-based Bingo, diagnostics, optional DiscordSRV chat bridging, and stateful Discord Chat Event embeds.
 
 ## Chat Events
 
@@ -19,6 +19,14 @@ Fresh installations provide `type-rush`, `unscramble`, `math-normal`, `math-hard
 
 Event start, winner, timeout and cancellation output uses configurable multi-line Adventure cards under `chat-events.presentation`. Player/provider values are inserted as Components rather than reparsed as MiniMessage source.
 
+### Compact interactive feedback — 3.6.1
+
+Stock Chat Event feedback is intentionally concise. The event type appears once in the state header, the challenge receives the main visual emphasis, and compact symbols communicate lifecycle state: `✦` active, `✔` complete, `⌛` expired and `✕` cancelled. Reward and timer metadata use `◆` and `⏱`; their explanatory labels are available through Adventure hover text instead of repeated visible words.
+
+Winner cards use `♛` and expose total/per-type persistent win statistics through hover text. The canonical answer is shown on successful completion. Stock TYPE, UNSCRAMBLE, MATH and REVERSE prompts are also shortened so the event name is not repeated in the challenge sentence.
+
+Schema v9 migrates only exact known stock v8 presentation strings. If an administrator customized a card or event prompt, that custom value remains untouched.
+
 Persistent wins are stored in:
 
 ```text
@@ -27,7 +35,7 @@ plugins/PlexonChats/chat-events.db
 
 The SQLite schema tracks total wins, per-type wins, per-definition wins and winner history. `run_id` remains unique, so duplicate completion callbacks cannot create duplicate persistent wins.
 
-## Discord Chat Event synchronization — 3.6.0
+## Discord Chat Event synchronization — 3.6.0+
 
 Discord is a presentation surface only. Minecraft/PlexonChats remains authoritative for event creation, timing, answers, Bingo draws/claims, winner selection, rewards, statistics, cancellation and timeout. Discord-origin messages do not count as Chat Event answers or Bingo claims.
 
@@ -103,7 +111,7 @@ Discord status exposes only safe operational state: enabled/disabled, selected/a
 - **Transactional configuration:** invalid candidates do not replace the known-good runtime generation.
 - **Bounded tasks:** one auto-message scheduler, one Chat Events coordinator, one database executor, and bounded Discord transport work.
 - **DiscordSRV isolation:** ordinary approved GLOBAL chat sync remains separate from Chat Event embeds; event system output is sent directly to Minecraft recipients rather than routed through the normal player-chat bridge.
-- **Display-only Discord events:** `participation-mode: DISPLAY_ONLY` is mandatory in 3.6.0.
+- **Display-only Discord events:** `participation-mode: DISPLAY_ONLY` remains mandatory.
 - **Public API compatibility:** existing `PlexonChatsAPI` and synchronous cancellable `PlexonChatEvent` remain compatible.
 
 AFK remains PlexonUtility-owned and is not duplicated in Chats.
@@ -146,15 +154,15 @@ SQLite JDBC is bundled for standalone `chat-events.db` operation. Paper/Bukkit/A
 
 ## Configuration and migration
 
-Configuration schema is **v8**. Upgrading a valid older configuration creates:
+Configuration schema is **v9**. Upgrading a valid older configuration creates:
 
 ```text
-config-before-v8-<timestamp>.yml
+config-before-v9-<timestamp>.yml
 ```
 
-The v7 → v8 migration generalizes the old Bingo-only Discord webhook into `chat-events.discord`. Existing webhook URL/username and Bingo draw/winner delivery intent are mapped when possible; the valid webhook secret is preserved exactly and removed from the obsolete duplicate location. Administrator-owned event definitions, reward profiles, timers, enabled states and unrelated configuration remain intact.
+The v8 → v9 migration refreshes only exact known stock Chat Event presentation cards/prompts. Custom administrator presentation values are preserved. The earlier v7 → v8 migration generalizes the old Bingo-only Discord webhook into `chat-events.discord`, preserving valid webhook URL/username data and removing the obsolete duplicate secret location. Administrator-owned event definitions, reward profiles, timers, enabled states and unrelated configuration remain intact.
 
-The earlier v6 → v7 migration behavior is retained for installations upgrading across multiple schema generations, including preservation of explicit event types and removal of obsolete participant-card Bingo mechanics.
+The v6 → v7 migration behavior is also retained for installations upgrading across multiple schema generations, including preservation of explicit event types and removal of obsolete participant-card Bingo mechanics.
 
 See [Configuration](docs/CONFIGURATION.md), [Chat Events](docs/CHAT-EVENTS.md), and [Upgrading](docs/UPGRADING.md).
 
@@ -170,16 +178,16 @@ With Maven 3.9+ and JDK 25:
 mvn --batch-mode --no-transfer-progress clean verify
 ```
 
-The stable artifact is `PlexonChats-3.6.0.jar`. Build/release verification checks Java class major 69, Paper 26.2 metadata, required Chat Event/Bingo/Discord/statistics/SQLite classes, provided-API isolation, checksums and provenance.
+The stable artifact is `PlexonChats-3.6.1.jar`. Build/release verification checks Java class major 69, Paper 26.2 metadata, required Chat Event/Bingo/Discord/statistics/SQLite classes, provided-API isolation, checksums and provenance.
 
 Stable publication rebuilds the exact final `main` source through `release/stable` and publishes:
 
-- `PlexonChats-3.6.0.jar`
+- `PlexonChats-3.6.1.jar`
 - `SHA256SUMS.txt`
 - `TEST_SUMMARY.txt`
 - `PROVENANCE.txt`
 
-Rollback baseline: `v3.5.0` / `4353eb80b8b1e3efaac4e5ab5f82ff6e6c3f1210`.
+Rollback baseline: `v3.6.0` / `e3bc1f04483ea235b947bbed2c5e2c99e6df8261`.
 
 Live PlexonCraft/Discord runtime certification remains a separate operational follow-up when direct host evidence is unavailable. Release provenance records `runtime_certification=FOLLOW_UP_REQUIRED`; GitHub source/release closure does not fabricate an in-game PASS.
 
