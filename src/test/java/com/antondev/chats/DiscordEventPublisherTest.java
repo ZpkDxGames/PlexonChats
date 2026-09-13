@@ -14,7 +14,6 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -61,7 +60,7 @@ class DiscordEventPublisherTest extends PluginTestBase {
         }
     }
 
-    @Test void deletedLiveMessageIsRecreatedOnceAndTerminalUsesReplacement() throws Exception {
+    @Test void deletedLiveMessageGetsOnlyOneRecreationBudgetAndTerminalUsesReplacement() throws Exception {
         RecoveringTransport transport = new RecoveringTransport();
         try (ChatEventDiscordPublisher publisher = new ChatEventDiscordPublisher(plugin, settings(true), transport)) {
             UUID run = UUID.randomUUID();
@@ -72,9 +71,14 @@ class DiscordEventPublisherTest extends PluginTestBase {
             await(() -> transport.creates.get() == 2 && "ACTIVE".equals(publisher.messageState(run)));
             assertEquals(List.of("LIVE", "DRAW AFTER DELETE"), transport.createdEmbeds.stream().map(DiscordEventEmbed::title).toList());
 
+            publisher.update(run, embed("SECOND FAILED EDIT"));
+            await(() -> transport.editAttempts.get() >= 2 && !publisher.pending(run));
+            assertEquals(2, transport.creates.get(), "a later edit failure must not consume another recreation");
+            assertEquals("ACTIVE", publisher.messageState(run));
+
             publisher.terminal(run, embed("WINNER"));
             await(() -> "TERMINAL".equals(publisher.messageState(run)));
-            assertEquals(2, transport.creates.get(), "deleted live message may be recreated only once");
+            assertEquals(2, transport.creates.get(), "deleted live message may be recreated only once per run");
             assertEquals("1002", transport.edits.getLast().ref.messageId(), "terminal edit must target the recreated message");
             assertEquals("WINNER", transport.edits.getLast().embed.title());
         }
@@ -216,12 +220,11 @@ class DiscordEventPublisherTest extends PluginTestBase {
     }
 
     private static final class RecoveringTransport extends FakeTransport {
-        private final AtomicBoolean failFirstEdit = new AtomicBoolean(true);
+        private final AtomicInteger editAttempts = new AtomicInteger();
 
         @Override public CompletableFuture<Void> edit(DiscordEventMessageRef message, DiscordEventEmbed embed) {
-            if (failFirstEdit.compareAndSet(true, false)) {
-                return CompletableFuture.failedFuture(new IllegalStateException("message deleted"));
-            }
+            int attempt = editAttempts.incrementAndGet();
+            if (attempt <= 2) return CompletableFuture.failedFuture(new IllegalStateException("message inaccessible"));
             return super.edit(message, embed);
         }
     }
