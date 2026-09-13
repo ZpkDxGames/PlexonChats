@@ -10,7 +10,7 @@ import java.util.Set;
 
 /** Adds new options without overwriting administrator-owned values or restoring deleted custom entries. */
 public final class ConfigUpgrader {
-    public static final int VERSION = 7;
+    public static final int VERSION = 8;
     private static final Set<String> USER_COLLECTIONS = Set.of(
             "gui.items", "gui.admin.items", "gui.events.items", "gui.creator.items", "auto-messages.groups",
             "chat-events.events");
@@ -22,6 +22,7 @@ public final class ConfigUpgrader {
         boolean upgraded = previousVersion < VERSION;
         if (upgraded) {
             if (previousVersion < 7) migrateBingoV7(current);
+            if (previousVersion < 8) migrateDiscordV8(current);
             merge(current, defaults, "");
             // Preserve administrator-owned GUI collections. Add only cross-page entry points that are known-safe.
             copySectionIfMissing(current, defaults, "gui.admin.items.chat-events");
@@ -66,6 +67,34 @@ public final class ConfigUpgrader {
             // Event identity, weight, cooldown, reward, minimum-online and other administrator values remain untouched.
             event.set("bingo", null);
         }
+    }
+
+    /** v8 generalizes the v3.5 Bingo-only webhook into one Chat Events Discord presentation layer. */
+    private static void migrateDiscordV8(YamlConfiguration current) {
+        String legacy = "chat-events.bingo.discord";
+        if (!current.isConfigurationSection(legacy)) return;
+
+        boolean legacyEnabled = current.getBoolean(legacy + ".enabled", false);
+        String legacyUrl = current.getString(legacy + ".webhook-url", "");
+        String legacyUsername = current.getString(legacy + ".username", "PlexonChats Bingo");
+        boolean sendDraws = current.getBoolean(legacy + ".send-draws", true);
+        boolean sendWin = current.getBoolean(legacy + ".send-win", true);
+
+        if (!current.contains("chat-events.discord.enabled")) current.set("chat-events.discord.enabled", legacyEnabled);
+        if (!current.contains("chat-events.discord.transport")) {
+            current.set("chat-events.discord.transport", legacyEnabled && !legacyUrl.isBlank() ? "WEBHOOK" : "AUTO");
+        }
+        if (!current.contains("chat-events.discord.participation-mode")) current.set("chat-events.discord.participation-mode", "DISPLAY_ONLY");
+        if (!current.contains("chat-events.discord.webhook.enabled")) current.set("chat-events.discord.webhook.enabled", legacyEnabled && !legacyUrl.isBlank());
+        // Preserve an administrator-owned secret exactly while moving it to the generalized schema.
+        if (!current.contains("chat-events.discord.webhook.url") && !legacyUrl.isBlank()) current.set("chat-events.discord.webhook.url", legacyUrl);
+        if (!current.contains("chat-events.discord.webhook.username")) current.set("chat-events.discord.webhook.username", legacyUsername);
+        if (!current.contains("chat-events.discord.events.bingo.enabled")) current.set("chat-events.discord.events.bingo.enabled", legacyEnabled);
+        if (!current.contains("chat-events.discord.events.bingo.update-on-draw")) current.set("chat-events.discord.events.bingo.update-on-draw", sendDraws);
+        if (!current.contains("chat-events.discord.events.bingo.announce-winner")) current.set("chat-events.discord.events.bingo.announce-winner", sendWin);
+
+        // The secret now has one authoritative location. Do not leave a second stale webhook copy behind.
+        current.set(legacy, null);
     }
 
     private static void merge(YamlConfiguration current, ConfigurationSection defaults, String parent) {
