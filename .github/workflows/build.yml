@@ -15,10 +15,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Check out source
+      - name: Check out exact source
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Record exact source SHA
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          echo "sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test "${SOURCE_SHA}" = "${{ github.event.pull_request.head.sha }}"
+          fi
 
       - name: Verify accepted v4.0.0 lineage
         shell: bash
@@ -83,6 +95,8 @@ jobs:
 
       - name: Verify distribution
         shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           set -euo pipefail
           VERSION='${{ steps.project.outputs.version }}'
@@ -157,7 +171,7 @@ jobs:
           )
           cat > target/PROVENANCE.txt <<EOF
           repository=ZpkDxGames/PlexonChats
-          commit=${GITHUB_SHA}
+          commit=${SOURCE_SHA}
           tag=v${VERSION}
           version=${VERSION}
           baseline_tag=v4.0.0
@@ -178,7 +192,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Maven-verify-${{ github.sha }}
+          name: Maven-verify-${{ steps.source.outputs.sha }}
           path: maven-verify.log
           if-no-files-found: warn
           retention-days: 7
@@ -186,7 +200,7 @@ jobs:
       - name: Upload verified artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PlexonChats-${{ steps.project.outputs.version }}-${{ github.sha }}
+          name: PlexonChats-${{ steps.project.outputs.version }}-${{ steps.source.outputs.sha }}
           path: |
             target/PlexonChats-${{ steps.project.outputs.version }}.jar
             target/SHA256SUMS.txt
