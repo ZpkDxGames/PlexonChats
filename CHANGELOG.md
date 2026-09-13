@@ -1,5 +1,30 @@
 # Changelog
 
+## 4.0.1 — aligned Bingo table renderer and configurable call pacing
+
+### Added
+
+- `TABLE` Bingo renderer with deterministic fixed-width Unicode table geometry under `minecraft:uniform`.
+- `COMPACT` renderer mode preserving the 4.0.0 borderless presentation.
+- Explicit validation for Bingo renderer style/font/dimensions and bounded call timing.
+- Direct regression coverage for row widths, separator indices, mark/winner geometry stability, 25 run-bound mark clicks, run-bound claim action, compact fallback, fresh 5-second defaults, administrator interval preservation, and schema-1 renderer compatibility.
+
+### Changed
+
+- Fresh 4.0.1 `data.yml` now uses `draws.interval-seconds: 5` while retaining `first-call-delay-seconds: 5`.
+- Fresh renderer defaults are `style: TABLE`, `left-padding: 2`, `cell-width: 4`, `column-gap: 0`, and `show-border: true`.
+- Marked cells remain fixed width and change color only; winning cells use color/underline rather than width-changing bold or marker characters.
+- The entire grid explicitly uses the configured fixed-width font, including borders, separators, headers and cells.
+- Build/release provenance now anchors to stable `v4.0.0` (`657d27766bce60235bc50602b4dd4d14b9e6998c`).
+
+### Migration / compatibility
+
+- `data.yml` remains schema 1. Existing administrator-owned timing and renderer values are not silently rewritten.
+- Existing 4.0.0 renderer blocks without `render.style` retain compatibility using their existing `show-border` behavior.
+- `data.yml` remains the only Bingo draw-interval authority; no competing 4.0.1 interval is introduced in `config.yml`.
+- `render.on-every-draw` remains false by default to prevent full-card chat flooding at the five-second cadence.
+- Live visual/runtime certification remains `FOLLOW_UP_REQUIRED` until real Paper 26.2 client evidence confirms pixel alignment and call readability.
+
 ## 4.0.0 — joinable manual-mark Bingo and minigame data layer
 
 ### Added
