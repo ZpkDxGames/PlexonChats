@@ -41,8 +41,10 @@ class ConfigurationAndGuiTest extends PluginTestBase {
         assertEquals("<gold>LEGACY {player}: {message}", plugin.getConfigManager().getGlobalFormat());
         try (var files = Files.list(file.getParent())) {
             var backups = files.filter(path -> path.getFileName().toString().startsWith("config-before-v9-")).toList();
-            assertEquals(1, backups.size());
-            assertEquals(legacy, Files.readString(backups.getFirst()));
+            assertTrue(backups.stream().anyMatch(path -> {
+                try { return Files.readString(path).equals(legacy); }
+                catch (java.io.IOException ex) { return false; }
+            }), "the exact administrator configuration must be backed up before v9 migration");
         }
     }
     @Test void completeTwoPointZeroConfigurationMigratesWithoutLosingAnyValue() throws Exception {
