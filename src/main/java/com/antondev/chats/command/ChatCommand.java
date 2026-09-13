@@ -70,8 +70,10 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
         CoreBridge core = plugin.getCoreBridge();
         ChatDiagnostics diagnostics = plugin.getDiagnostics();
         boolean apiRegistered = Bukkit.getServicesManager().getRegistration(PlexonChatsAPI.class) != null;
-        long guiSessions = Bukkit.getOnlinePlayers().stream()
-                .filter(player -> player.getOpenInventory().getTopInventory().getHolder() instanceof ChatGUIHolder).count();
+        long guiSessions = Bukkit.getOnlinePlayers().stream().filter(player -> {
+            var top = player.getOpenInventory().getTopInventory();
+            return top != null && top.getHolder() instanceof ChatGUIHolder;
+        }).count();
         String papi = Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI") ? "READY" : "NOT INSTALLED";
         ChatEventManager events = plugin.getChatEvents();
         ChatEventStatisticsService stats = events.statistics();
