@@ -88,6 +88,7 @@ public class PlexonChats extends JavaPlugin implements Listener {
             getServer().getPluginManager().registerEvents(new GUIListener(this), this);
             getServer().getPluginManager().registerEvents(this, this);
             register("chat", new ChatCommand(this));
+            register("bingo", new BingoCommand(this));
             register("g", new GlobalChatCommand(this));
             register("l", new LocalChatCommand(this));
             register("announce", new AnnouncementCommand(this));

@@ -2,12 +2,12 @@ package com.antondev.chats.event;
 
 import com.antondev.chats.ChatChannel;
 import com.antondev.chats.PlexonChats;
+import com.antondev.chats.event.bingo.BingoDiscordWebhook;
+import com.antondev.chats.event.bingo.BingoPattern;
 import com.antondev.chats.event.bingo.BingoRenderer;
-import com.antondev.chats.event.bingo.BingoSession;
+import com.antondev.chats.event.bingo.BingoRun;
 import com.antondev.chats.text.ComponentTemplate;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.event.ClickEvent;
-import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -27,7 +27,7 @@ import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicReference;
 
-/** Owns the single Chat Events coordinator, active competition, Bingo session and exact-once completion paths. */
+/** Owns the single Chat Events coordinator, active competition, shared Bingo run and exact-once completion paths. */
 public final class ChatEventManager {
     public enum StartStatus { STARTED, DISABLED, ALREADY_ACTIVE, NOT_FOUND, EVENT_DISABLED, COOLDOWN, NOT_ENOUGH_PLAYERS, NO_ELIGIBLE_EVENTS, GENERATION_FAILED }
 
@@ -38,8 +38,9 @@ public final class ChatEventManager {
     private final ComponentTemplate templates = new ComponentTemplate(MiniMessage.miniMessage());
     private final Map<ChatEventEngine.Type, ChatEventEngine.Generator> generators = ChatEventEngine.generators();
     private final AtomicReference<ChatEventEngine.Competition> active = new AtomicReference<>();
-    private final AtomicReference<BingoSession> activeBingo = new AtomicReference<>();
+    private final AtomicReference<BingoRun> activeBingo = new AtomicReference<>();
     private final Map<String, Long> cooldownUntilNanos = new LinkedHashMap<>();
+    private final BingoDiscordWebhook bingoDiscord;
     private volatile ChatEventConfig config;
     private BukkitTask coordinatorTask;
     private boolean paused;
@@ -53,6 +54,7 @@ public final class ChatEventManager {
         this.plugin = plugin;
         this.rewards = new ChatEventRewardService(plugin);
         this.statistics = new ChatEventStatisticsService(plugin.getDataFolder().toPath().resolve("chat-events.db"), plugin.getLogger());
+        this.bingoDiscord = new BingoDiscordWebhook(plugin.getLogger());
     }
 
     public void reload() {
@@ -74,6 +76,7 @@ public final class ChatEventManager {
         stopCoordinator();
         config = null;
         statistics.close();
+        bingoDiscord.close();
     }
 
     public void refreshIntegrations() { rewards.refreshIntegrations(); }
@@ -84,7 +87,7 @@ public final class ChatEventManager {
         if (current == null || !current.enabled()) return;
         long now = System.nanoTime();
 
-        BingoSession bingo = activeBingo.get();
+        BingoRun bingo = activeBingo.get();
         if (bingo != null) {
             tickBingo(bingo, now);
             return;
@@ -103,45 +106,40 @@ public final class ChatEventManager {
         }
     }
 
-    private void tickBingo(BingoSession session, long now) {
-        if (session.phase() == BingoSession.Phase.JOINING && now >= session.joinDeadlineNanos()) {
-            if (session.activate(now)) {
-                announceBingoParticipants(session, List.of(Component.text("Bingo is live. Your card is ready.", NamedTextColor.GREEN)));
-                for (BingoSession.Participant participant : session.participants()) {
-                    Player player = Bukkit.getPlayer(participant.playerId());
-                    if (player != null && player.isOnline()) showBingoCard(player, session, null);
-                }
-                return;
-            }
-            if (session.cancelInsufficient(now)) {
-                finishBingoWithoutWinner(session, "CANCELLED", "Not enough players joined this Bingo round.", true);
-                return;
-            }
-        }
-        if (session.phase() != BingoSession.Phase.ACTIVE) return;
-        if (session.timeout(now)) {
-            finishBingoWithoutWinner(session, "TIMED_OUT", "Bingo ended without a winner.", true);
+    private void tickBingo(BingoRun run, long now) {
+        if (run.phase() != BingoRun.Phase.ACTIVE) return;
+        if (run.timeout(now)) {
+            finishBingoWithoutWinner(run, "TIMED_OUT", "Bingo ended without a winner.", true);
             return;
         }
-        Integer drawn = session.draw(now);
-        if (drawn == null) return;
-        Map<String, Component> values = bingoValues(session);
-        values.put("drawn_number", Component.text(BingoRenderer.label(drawn)));
-        values.put("draw_count", Component.text(Integer.toString(session.drawCount())));
-        values.put("open_card_button", BingoRenderer.openCardButton());
-        List<Component> lines = bingoMessage(session.definition().bingo(), "draw", values,
-                List.of("<gold>[BINGO]</gold> <gray>Draw</gray> <yellow>#{draw_count}</yellow><gray>:</gray> <white>{drawn_number}</white> <dark_gray>•</dark_gray> {open_card_button}"));
-        announceBingoParticipants(session, lines);
-        if (session.definition().bingo().redrawBoardEachDraw()) {
-            for (BingoSession.Participant participant : session.participants()) {
-                Player player = Bukkit.getPlayer(participant.playerId());
-                if (player != null && player.isOnline()) showBingoCard(player, session, null);
-            }
+        if (run.exhaust(now)) {
+            finishBingoWithoutWinner(run, "EXHAUSTED", "All 75 numbers were called without an accepted claim.", true);
+            return;
         }
+        Integer drawn = run.draw(now);
+        if (drawn == null) return;
+
+        Map<String, Component> values = bingoValues(run);
+        values.put("drawn_number", Component.text(BingoRenderer.label(drawn)));
+        List<Component> call = bingoMessage(run.definition().bingo(), "draw", values,
+                List.of("<gold>[BINGO]</gold> <gray>Call</gray> <yellow>#{draw_count}</yellow><gray>:</gray> <white>{drawn_number}</white>"));
+        announceBingoAudience(run, withBlankSpacing(join(call, BingoRenderer.render(run, null))));
+        ChatEventConfig.BingoDiscord discord = run.definition().bingo().discord();
+        if (discord.sendDraws()) bingoDiscord.send(discord, "Bingo call " + run.drawCount() + ": " + BingoRenderer.label(drawn), run);
     }
 
+    /** Called only from the accepted native Minecraft public-chat route after PlexonChatEvent cancellation. */
     public boolean acceptAnswer(Player player, ChatChannel channel, String rawAnswer) {
-        if (activeBingo.get() != null) return false;
+        BingoRun bingo = activeBingo.get();
+        if (bingo != null) {
+            if (!rawAnswer.trim().equalsIgnoreCase("bingo")) return false;
+            if (!bingo.definition().acceptedChannels().contains(channel)) return false;
+            BingoRun.ClaimResult result = claimModel(bingo, player);
+            if (Bukkit.isPrimaryThread()) handleBingoClaim(bingo, player, result);
+            else Bukkit.getScheduler().runTask(plugin, () -> handleBingoClaim(bingo, player, result));
+            return result.status() == BingoRun.ClaimStatus.WON;
+        }
+
         ChatEventEngine.Competition running = active.get();
         if (running == null || running.state() != ChatEventEngine.State.ACTIVE) return false;
         ChatEventConfig.Definition definition = running.round().definition();
@@ -208,8 +206,16 @@ public final class ChatEventManager {
 
     public boolean stop() { return cancelActive("ADMIN_CANCEL", true); }
 
+    public boolean stopBingo() {
+        BingoRun run = activeBingo.get();
+        if (run == null || !run.cancel()) return false;
+        finishBingoWithoutWinner(run, "CANCELLED", "The current Bingo round was cancelled.", true);
+        plugin.getLogger().info("Bingo event cancelled: run=" + run.runId() + " reason=ADMIN_CANCEL");
+        return true;
+    }
+
     private boolean cancelActive(String reason, boolean broadcast) {
-        BingoSession bingo = activeBingo.get();
+        BingoRun bingo = activeBingo.get();
         if (bingo != null && bingo.cancel()) {
             if (broadcast) finishBingoWithoutWinner(bingo, "CANCELLED", "The current Bingo round was cancelled.", true);
             else clearBingo(bingo, "CANCELLED");
@@ -235,6 +241,17 @@ public final class ChatEventManager {
         return startDefinition(definition, false);
     }
 
+    public StartStatus startBingo() {
+        ChatEventConfig current = config;
+        if (current == null || !current.enabled()) return StartStatus.DISABLED;
+        ChatEventConfig.Definition preferred = current.definitions().get("bingo-classic");
+        if (preferred != null && preferred.type() == ChatEventEngine.Type.BINGO) return startDefinition(preferred, false);
+        for (ChatEventConfig.Definition definition : current.definitions().values()) {
+            if (definition.type() == ChatEventEngine.Type.BINGO && definition.enabled()) return startDefinition(definition, false);
+        }
+        return StartStatus.NOT_FOUND;
+    }
+
     public StartStatus startRandom(boolean scheduled) {
         ChatEventConfig current = config;
         if (current == null || !current.enabled()) return StartStatus.DISABLED;
@@ -253,9 +270,8 @@ public final class ChatEventManager {
         if (cooldownUntilNanos.getOrDefault(definition.id(), 0L) > now) return StartStatus.COOLDOWN;
         List<Player> eligible = eligiblePlayers(definition);
         int minimum = Math.max(definition.minOnline(), scheduled ? current.scheduler().minOnline() : 0);
-        if (definition.type() == ChatEventEngine.Type.BINGO) minimum = Math.max(minimum, definition.bingo().minParticipants());
         if (eligible.size() < minimum) return StartStatus.NOT_ENOUGH_PLAYERS;
-        if (definition.type() == ChatEventEngine.Type.BINGO) return startBingo(definition, eligible, now);
+        if (definition.type() == ChatEventEngine.Type.BINGO) return startBingo(definition, now);
 
         ChatEventEngine.Generator generator = generators.get(definition.type());
         if (generator == null) return StartStatus.GENERATION_FAILED;
@@ -281,37 +297,36 @@ public final class ChatEventManager {
         return StartStatus.STARTED;
     }
 
-    private StartStatus startBingo(ChatEventConfig.Definition definition, List<Player> eligible, long now) {
-        if (!definition.bingo().enabled()) return StartStatus.EVENT_DISABLED;
-        Set<UUID> audience = eligible.stream().map(Player::getUniqueId).collect(java.util.stream.Collectors.toUnmodifiableSet());
+    private StartStatus startBingo(ChatEventConfig.Definition definition, long now) {
+        ChatEventConfig.BingoSettings settings = definition.bingo();
+        if (!settings.enabled()) return StartStatus.EVENT_DISABLED;
         UUID runId = UUID.randomUUID();
-        long joinDeadline = now + seconds(definition.bingo().joinSeconds());
-        long timeoutDeadline = joinDeadline + seconds(definition.bingo().timeoutSeconds());
-        BingoSession session = new BingoSession(runId, definition, audience, definition.bingo().minParticipants(), joinDeadline,
-                timeoutDeadline, joinDeadline + seconds(definition.bingo().firstDrawDelaySeconds()), seconds(definition.bingo().drawIntervalSeconds()),
-                definition.bingo().freeCenter(), definition.bingo().winPatterns(), ThreadLocalRandom.current());
-        if (!activeBingo.compareAndSet(null, session)) return StartStatus.ALREADY_ACTIVE;
+        BingoRun run;
+        try {
+            run = new BingoRun(runId, definition, now, now + seconds(definition.durationSeconds()),
+                    now + seconds(settings.firstDrawDelaySeconds()), seconds(settings.drawIntervalSeconds()),
+                    settings.winPatterns(), ThreadLocalRandom.current());
+        } catch (RuntimeException failure) {
+            recentFailure = "bingo generator " + definition.id() + ": " + failure.getClass().getSimpleName();
+            plugin.getDiagnostics().recordIntegrationFailure("chat-events-bingo", failure);
+            return StartStatus.GENERATION_FAILED;
+        }
+        if (!activeBingo.compareAndSet(null, run)) return StartStatus.ALREADY_ACTIVE;
+        if (!run.activate()) { activeBingo.compareAndSet(run, null); return StartStatus.GENERATION_FAILED; }
         markStarted(definition, now);
 
-        Map<String, Component> values = bingoValues(session);
-        values.put("join_seconds", Component.text(Integer.toString(definition.bingo().joinSeconds())));
-        values.put("join_command", Component.text("/chat events bingo join " + runId));
-        values.put("join_button", Component.text("[ JOIN BINGO ]", NamedTextColor.GREEN, TextDecoration.BOLD)
-                .clickEvent(ClickEvent.runCommand("/chat events bingo join " + runId))
-                .hoverEvent(HoverEvent.showText(Component.text("Join this Bingo round", NamedTextColor.GREEN))));
-        List<Component> fallback = presentation.renderLines(List.of(
+        Map<String, Component> values = bingoValues(run);
+        List<Component> intro = bingoMessage(settings, "start", withSeparator(values), List.of(
                 "{separator}",
-                "<gold><bold>BINGO</bold></gold>",
-                "<gray>A new Bingo round is starting!</gray>",
-                "",
-                "{join_button}",
-                "",
-                "<gray>Join closes in:</gray> <yellow>{join_seconds}s</yellow>",
-                "<gray>Reward:</gray> <gold>{reward}</gold>",
-                "{separator}"), withSeparator(values));
-        List<Component> configured = bingoMessage(definition.bingo(), "join-open", withSeparator(values), List.of());
-        broadcast(configured.isEmpty() ? withBlankSpacing(fallback) : withBlankSpacing(configured));
-        plugin.getLogger().info("Bingo event joining: run=" + runId + " definition=" + definition.id() + " eligible=" + eligible.size());
+                "<gold><bold>BINGO</bold></gold> <gray>Watch the shared board and claim the first completed pattern.</gray>",
+                "<gray>Use <white>/bingo claim</white> or type <white>bingo</white> in public chat.</gray>",
+                "<gray>First call in:</gray> <yellow>" + settings.firstDrawDelaySeconds() + "s</yellow>",
+                "{separator}"));
+        announceBingoAudience(run, withBlankSpacing(join(intro, BingoRenderer.render(run, null))));
+        play(eligibleAudience(definition), "start");
+        if (settings.discord().sendStart()) bingoDiscord.send(settings.discord(), "Bingo started", run);
+        plugin.getLogger().info("Bingo event started: run=" + runId + " definition=" + definition.id()
+                + " eligible=" + eligiblePlayers(definition).size());
         return StartStatus.STARTED;
     }
 
@@ -320,62 +335,43 @@ public final class ChatEventManager {
         lastStartedId = definition.id();
     }
 
-    public BingoSession.JoinResult bingoJoin(Player player, UUID runId) {
-        BingoSession session = activeBingo.get();
-        if (session == null || !session.runId().equals(runId)) return BingoSession.JoinResult.CLOSED;
-        if (!player.hasPermission("plexonchats.events.bingo.play") || !eligibleNow(player, session.definition())) return BingoSession.JoinResult.NOT_ELIGIBLE;
-        BingoSession.JoinResult result = session.join(player.getUniqueId(), player.getName(), System.nanoTime(), ThreadLocalRandom.current());
-        switch (result) {
-            case JOINED -> {
-                send(player, bingoMessage(session.definition().bingo(), "joined", bingoValues(session),
-                        List.of("<green>You joined this Bingo round.</green>", "<gray>Your card is shown below.</gray>")));
-                showBingoCard(player, session, null);
-            }
-            case ALREADY_JOINED -> showBingoCard(player, session, null);
-            case CLOSED -> player.sendMessage(Component.text("Bingo joining is closed for this round.", NamedTextColor.RED));
-            case NOT_ELIGIBLE -> player.sendMessage(Component.text("You are not eligible for this Bingo round.", NamedTextColor.RED));
-        }
+    public BingoRun.ClaimResult bingoClaim(Player player) {
+        BingoRun run = activeBingo.get();
+        if (run == null) return new BingoRun.ClaimResult(BingoRun.ClaimStatus.NOT_ACTIVE, null);
+        BingoRun.ClaimResult result = claimModel(run, player);
+        handleBingoClaim(run, player, result);
         return result;
     }
 
-    public BingoSession.MarkResult bingoMark(Player player, UUID runId, int cell) {
-        BingoSession session = activeBingo.get();
-        if (session == null || !session.runId().equals(runId)) {
-            player.sendMessage(Component.text("That Bingo action is stale.", NamedTextColor.RED));
-            return new BingoSession.MarkResult(BingoSession.MarkStatus.NOT_ACTIVE, null, null);
-        }
-        BingoSession.MarkResult result = session.mark(player.getUniqueId(), cell);
+    private BingoRun.ClaimResult claimModel(BingoRun run, Player player) {
+        boolean eligible = player.hasPermission("plexonchats.events.bingo.play") && eligibleNow(player, run.definition());
+        return run.claim(player.getUniqueId(), player.getName(), eligible);
+    }
+
+    private void handleBingoClaim(BingoRun run, Player player, BingoRun.ClaimResult result) {
         switch (result.status()) {
-            case MARKED -> {
-                Map<String, Component> values = bingoValues(session);
-                values.put("drawn_number", Component.text(BingoRenderer.label(result.number())));
-                send(player, bingoMessage(session.definition().bingo(), "marked", values,
-                        List.of("<gold>[BINGO]</gold> <green>Marked {drawn_number}.</green>")));
-                showBingoCard(player, session, null);
-            }
-            case WON -> completeBingoWinner(session, player, result);
-            case NOT_DRAWN -> player.sendMessage(Component.text("[BINGO] That number has not been drawn yet.", NamedTextColor.RED));
-            case ALREADY_MARKED -> player.sendMessage(Component.text("[BINGO] That cell is already marked.", NamedTextColor.YELLOW));
-            case NOT_PARTICIPANT -> player.sendMessage(Component.text("You are not participating in this Bingo round.", NamedTextColor.RED));
-            case INVALID_CELL, NOT_ACTIVE -> player.sendMessage(Component.text("That Bingo action is invalid or stale.", NamedTextColor.RED));
+            case WON -> completeBingoWinner(run, player, result.win());
+            case NO_PATTERN -> send(player, bingoMessage(run.definition().bingo(), "invalid-claim", bingoValues(run),
+                    List.of("<yellow>[BINGO] No enabled winning pattern is complete yet.</yellow>")));
+            case NOT_ELIGIBLE -> player.sendMessage(Component.text("You are not eligible to claim this Bingo round.", NamedTextColor.RED));
+            case NOT_ACTIVE -> player.sendMessage(Component.text("There is no active claimable Bingo round.", NamedTextColor.YELLOW));
         }
-        return result;
     }
 
-    private void completeBingoWinner(BingoSession session, Player player, BingoSession.MarkResult mark) {
-        if (session.phase() != BingoSession.Phase.WON || !session.beginCompletion()) return;
-        ChatEventConfig.Definition definition = session.definition();
-        long elapsedNanos = Math.max(0, System.nanoTime() - (session.joinDeadlineNanos() - seconds(definition.bingo().joinSeconds())));
+    private void completeBingoWinner(BingoRun run, Player player, com.antondev.chats.event.bingo.BingoBoard.Win win) {
+        if (run.phase() != BingoRun.Phase.WON || !run.beginCompletion()) return;
+        ChatEventConfig.Definition definition = run.definition();
+        long elapsedNanos = Math.max(0, System.nanoTime() - run.startedNanos());
         long elapsedMs = elapsedNanos / 1_000_000L;
-        ChatEventStatisticsService.PlayerStats stats = statistics.recordWin(session.runId(), player.getUniqueId(), player.getName(),
+        ChatEventStatisticsService.PlayerStats stats = statistics.recordWin(run.runId(), player.getUniqueId(), player.getName(),
                 definition.id(), ChatEventEngine.Type.BINGO, definition.rewardProfile(), elapsedMs);
         ChatEventRewardService.RewardResult reward = grantReward(player, definition);
-        showBingoCard(player, session, mark.win());
 
-        Map<String, Component> values = bingoValues(session);
+        broadcast(withBlankSpacing(BingoRenderer.render(run, win)));
+        Map<String, Component> values = bingoValues(run);
         values.put("winner", Component.text(player.getName()));
         values.put("winner_uuid", Component.text(player.getUniqueId().toString()));
-        values.put("pattern", Component.text(mark.win().pattern().displayName()));
+        values.put("pattern", Component.text(win.pattern().displayName()));
         values.put("reward", Component.text(reward.summary()));
         values.put("reward_summary", Component.text(reward.summary()));
         values.put("winner_total_wins", Component.text(Long.toString(stats.totalWins())));
@@ -383,61 +379,61 @@ public final class ChatEventManager {
         List<Component> winnerCard = presentation.renderLines(List.of(
                 "{separator}",
                 "<gold><bold>BINGO WINNER</bold></gold>",
-                "",
-                "<white>{winner}</white> <gray>completed</gray> <aqua>{pattern}</aqua><gray>!</gray>",
+                "<white>{winner}</white> <gray>claimed</gray> <aqua>{pattern}</aqua><gray>!</gray>",
                 "<gray>Reward:</gray> <gold>{reward}</gold>",
-                "",
                 "<gray>Total Chat Event Wins:</gray> <yellow>{winner_total_wins}</yellow>",
                 "<gray>Bingo Wins:</gray> <yellow>{winner_type_wins}</yellow>",
                 "{separator}"), withSeparator(values));
-        announceBingoParticipants(session, List.of(Component.text("Bingo complete — " + player.getName() + " won with " + mark.win().pattern().displayName() + ".", NamedTextColor.GOLD)));
         broadcast(withBlankSpacing(winnerCard));
-        play(session.eligiblePlayers(), "win");
+        play(eligibleAudience(definition), "win");
+        if (definition.bingo().discord().sendWin()) bingoDiscord.send(definition.bingo().discord(),
+                player.getName() + " won Bingo — " + win.pattern().displayName(), run);
         lastEvent = definition.id() + "/WON";
         lastWinner = player.getName();
         if (reward.hasFailure()) recentFailure = "reward partial failure for " + definition.id();
-        activeBingo.compareAndSet(session, null);
+        activeBingo.compareAndSet(run, null);
         scheduleNextInterval();
-        plugin.getLogger().info("Bingo won: run=" + session.runId() + " winner=" + player.getUniqueId() + "/" + player.getName()
-                + " pattern=" + mark.win().pattern() + " reward=" + definition.rewardProfile());
+        plugin.getLogger().info("Bingo won: run=" + run.runId() + " winner=" + player.getUniqueId() + "/" + player.getName()
+                + " pattern=" + win.pattern() + " reward=" + definition.rewardProfile());
     }
 
-    public boolean showBingoCard(Player player) {
-        BingoSession session = activeBingo.get();
-        if (session == null || session.participant(player.getUniqueId()) == null) return false;
-        showBingoCard(player, session, session.winner() != null && session.winner().playerId().equals(player.getUniqueId()) ? session.winner().win() : null);
+    public boolean showBingoBoard(Player player) {
+        BingoRun run = activeBingo.get();
+        if (run == null || run.phase() != BingoRun.Phase.ACTIVE) return false;
+        if (!player.hasPermission("plexonchats.events.bingo.play") || !eligibleNow(player, run.definition())) return false;
+        List<Component> lines = new ArrayList<>(BingoRenderer.render(run, null));
+        lines.add(Component.text("Patterns: ", NamedTextColor.GRAY).append(Component.text(patternsText(run.patterns()), NamedTextColor.WHITE)));
+        lines.add(Component.text("Next call: ", NamedTextColor.GRAY).append(Component.text(formatSeconds(nextDrawMillis(run)), NamedTextColor.YELLOW)));
+        lines.add(Component.text("Claim with /bingo claim or type bingo in public chat.", NamedTextColor.AQUA));
+        send(player, withBlankSpacing(lines));
         return true;
     }
 
-    private void showBingoCard(Player player, BingoSession session, com.antondev.chats.event.bingo.BingoBoard.Win win) {
-        BingoSession.Participant participant = session.participant(player.getUniqueId());
-        if (participant == null) return;
-        send(player, BingoRenderer.render(session.runId(), participant, session.drawnNumbers(), session.drawCount(), session.lastDraw(), win));
-    }
-
     public void onPlayerJoin(Player player) {
-        BingoSession session = activeBingo.get();
-        if (session != null && session.participant(player.getUniqueId()) != null) showBingoCard(player, session,
-                session.winner() != null && session.winner().playerId().equals(player.getUniqueId()) ? session.winner().win() : null);
+        BingoRun run = activeBingo.get();
+        if (run != null && run.phase() == BingoRun.Phase.ACTIVE && player.hasPermission("plexonchats.events.bingo.play") && eligibleNow(player, run.definition())) {
+            showBingoBoard(player);
+        }
     }
 
-    private void finishBingoWithoutWinner(BingoSession session, String state, String reason, boolean global) {
-        announceBingoParticipants(session, List.of(Component.text(reason, state.equals("TIMED_OUT") ? NamedTextColor.YELLOW : NamedTextColor.GRAY)));
+    private void finishBingoWithoutWinner(BingoRun run, String state, String reason, boolean global) {
         if (global) {
+            broadcast(withBlankSpacing(BingoRenderer.render(run, null)));
             List<Component> lines = presentation.renderLines(List.of(
                     "{separator}",
-                    "<yellow><bold>BINGO " + (state.equals("TIMED_OUT") ? "ENDED" : "CANCELLED") + "</bold></yellow>",
+                    "<yellow><bold>BINGO " + (state.equals("CANCELLED") ? "CANCELLED" : "ENDED") + "</bold></yellow>",
                     "<gray>{reason}</gray>",
+                    "<gray>No reward or win statistic was issued.</gray>",
                     "{separator}"), withSeparator(Map.of("reason", Component.text(reason))));
             broadcast(withBlankSpacing(lines));
         }
-        clearBingo(session, state);
+        clearBingo(run, state);
     }
 
-    private void clearBingo(BingoSession session, String state) {
-        lastEvent = session.definition().id() + "/" + state;
+    private void clearBingo(BingoRun run, String state) {
+        lastEvent = run.definition().id() + "/" + state;
         lastWinner = "-";
-        activeBingo.compareAndSet(session, null);
+        activeBingo.compareAndSet(run, null);
         scheduleNextInterval();
     }
 
@@ -448,10 +444,12 @@ public final class ChatEventManager {
         if (definition == null) { sender.sendMessage(Component.text("Unknown Chat Event: " + id)); return; }
         if (definition.type() == ChatEventEngine.Type.BINGO) {
             sender.sendMessage(Component.text("Chat Event preview — " + definition.name() + " / BINGO"));
-            sender.sendMessage(Component.text("Join: " + definition.bingo().joinSeconds() + "s • minimum participants: " + definition.bingo().minParticipants()));
+            sender.sendMessage(Component.text("Shared board • automatic marking • no FREE center"));
             sender.sendMessage(Component.text("Draw: " + definition.bingo().firstDrawDelaySeconds() + "s initial / " + definition.bingo().drawIntervalSeconds() + "s interval"));
-            sender.sendMessage(Component.text("Patterns: " + definition.bingo().winPatterns()));
+            sender.sendMessage(Component.text("Patterns: " + patternsText(definition.bingo().winPatterns())));
+            sender.sendMessage(Component.text("Duration: " + definition.durationSeconds() + "s"));
             sender.sendMessage(Component.text("Reward: " + rewardDescription(definition.rewardProfile())));
+            sender.sendMessage(Component.text("Discord board sync: " + (definition.bingo().discord().enabled() ? "ENABLED" : "DISABLED")));
             return;
         }
         try {
@@ -477,24 +475,21 @@ public final class ChatEventManager {
     public boolean paused() { return paused; }
     public boolean taskActive() { return coordinatorTask != null && !coordinatorTask.isCancelled(); }
     public String activeId() {
-        BingoSession bingo = activeBingo.get();
+        BingoRun bingo = activeBingo.get();
         if (bingo != null) return bingo.definition().id();
         ChatEventEngine.Competition value = active.get();
         return value == null ? "NONE" : value.round().definition().id();
     }
     public String activeType() { return activeBingo.get() != null ? "BINGO" : active.get() == null ? "-" : active.get().round().definition().type().name(); }
     public UUID activeRunId() {
-        BingoSession bingo = activeBingo.get();
+        BingoRun bingo = activeBingo.get();
         if (bingo != null) return bingo.runId();
         ChatEventEngine.Competition value = active.get();
         return value == null ? null : value.round().runId();
     }
     public long remainingMillis() {
-        BingoSession bingo = activeBingo.get();
-        if (bingo != null) {
-            long deadline = bingo.phase() == BingoSession.Phase.JOINING ? bingo.joinDeadlineNanos() : bingo.timeoutDeadlineNanos();
-            return Math.max(0, (deadline - System.nanoTime()) / 1_000_000L);
-        }
+        BingoRun bingo = activeBingo.get();
+        if (bingo != null) return Math.max(0, (bingo.timeoutDeadlineNanos() - System.nanoTime()) / 1_000_000L);
         ChatEventEngine.Competition value = active.get();
         return value == null ? -1 : Math.max(0, (value.deadlineNanos() - System.nanoTime()) / 1_000_000L);
     }
@@ -510,14 +505,24 @@ public final class ChatEventManager {
     public int eligibleScheduledCount() { return selectableDefinitions(System.nanoTime()).size(); }
     public long cooldownRemainingSeconds(String id) { return Math.max(0, (cooldownUntilNanos.getOrDefault(id, 0L) - System.nanoTime()) / 1_000_000_000L); }
     public ChatEventStatisticsService statistics() { return statistics; }
-    public String bingoPhase() { BingoSession value = activeBingo.get(); return value == null ? "IDLE" : value.phase().name(); }
-    public int bingoParticipantCount() { BingoSession value = activeBingo.get(); return value == null ? 0 : value.participantCount(); }
-    public int bingoDrawCount() { BingoSession value = activeBingo.get(); return value == null ? 0 : value.drawCount(); }
-    public String bingoLastDraw() { BingoSession value = activeBingo.get(); return value == null || value.lastDraw() <= 0 ? "-" : BingoRenderer.label(value.lastDraw()); }
-    public int bingoRemainingCount() { BingoSession value = activeBingo.get(); return value == null ? 0 : value.remainingCount(); }
+    public String bingoPhase() { BingoRun value = activeBingo.get(); return value == null ? "IDLE" : value.phase().name(); }
+    public int bingoDrawCount() { BingoRun value = activeBingo.get(); return value == null ? 0 : value.drawCount(); }
+    public String bingoLastDraw() { BingoRun value = activeBingo.get(); return value == null || value.lastDraw() <= 0 ? "-" : BingoRenderer.label(value.lastDraw()); }
+    public int bingoRemainingCount() { BingoRun value = activeBingo.get(); return value == null ? 0 : value.remainingCount(); }
+    public long bingoNextDrawMillis() { BingoRun value = activeBingo.get(); return value == null ? -1 : nextDrawMillis(value); }
+    public String bingoPatterns() { BingoRun value = activeBingo.get(); return value == null ? "-" : patternsText(value.patterns()); }
+    public boolean bingoDiscordEnabled() { BingoRun value = activeBingo.get(); return value != null && value.definition().bingo().discord().enabled(); }
+    public String bingoRewardProfile() { BingoRun value = activeBingo.get(); return value == null ? "-" : value.definition().rewardProfile(); }
+    /** Compatibility diagnostic: this is current eligible audience size, not an opt-in participant count. */
+    public int bingoParticipantCount() { BingoRun value = activeBingo.get(); return value == null ? 0 : eligiblePlayers(value.definition()).size(); }
     public List<String> bingoParticipants() {
-        BingoSession value = activeBingo.get();
-        return value == null ? List.of() : value.participants().stream().map(BingoSession.Participant::playerName).toList();
+        BingoRun value = activeBingo.get();
+        return value == null ? List.of() : eligiblePlayers(value.definition()).stream().map(Player::getName).toList();
+    }
+
+    public List<String> bingoBoardPreview() {
+        BingoRun value = activeBingo.get();
+        return value == null ? List.of() : BingoRenderer.plainLines(value);
     }
 
     public List<String> listStatus() {
@@ -568,6 +573,10 @@ public final class ChatEventManager {
         return List.copyOf(result);
     }
 
+    private Set<UUID> eligibleAudience(ChatEventConfig.Definition definition) {
+        return eligiblePlayers(definition).stream().map(Player::getUniqueId).collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
     private boolean eligibleNow(Player player, ChatEventConfig.Definition definition) {
         if (!player.isOnline()) return false;
         if (!definition.permission().isBlank() && !player.hasPermission(definition.permission())) return false;
@@ -598,12 +607,13 @@ public final class ChatEventManager {
         return values;
     }
 
-    private Map<String, Component> bingoValues(BingoSession session) {
-        Map<String, Component> values = baseValues(session.definition(), session.runId());
-        values.put("participant_count", Component.text(Integer.toString(session.participantCount())));
-        values.put("draw_count", Component.text(Integer.toString(session.drawCount())));
-        values.put("drawn_number", Component.text(session.lastDraw() <= 0 ? "-" : BingoRenderer.label(session.lastDraw())));
-        values.put("remaining_seconds", Component.text(Long.toString(Math.max(0, (session.timeoutDeadlineNanos() - System.nanoTime()) / 1_000_000_000L))));
+    private Map<String, Component> bingoValues(BingoRun run) {
+        Map<String, Component> values = baseValues(run.definition(), run.runId());
+        values.put("draw_count", Component.text(Integer.toString(run.drawCount())));
+        values.put("drawn_number", Component.text(run.lastDraw() <= 0 ? "-" : BingoRenderer.label(run.lastDraw())));
+        values.put("remaining_pool", Component.text(Integer.toString(run.remainingCount())));
+        values.put("patterns", Component.text(patternsText(run.patterns())));
+        values.put("next_draw", Component.text(formatSeconds(nextDrawMillis(run))));
         return values;
     }
 
@@ -631,6 +641,13 @@ public final class ChatEventManager {
         return List.copyOf(result);
     }
 
+    private static List<Component> join(List<Component> first, List<Component> second) {
+        ArrayList<Component> result = new ArrayList<>(first.size() + second.size());
+        result.addAll(first);
+        result.addAll(second);
+        return List.copyOf(result);
+    }
+
     private void announce(Set<UUID> audience, List<Component> lines) {
         for (UUID id : audience) {
             Player player = Bukkit.getPlayer(id);
@@ -638,16 +655,9 @@ public final class ChatEventManager {
         }
     }
 
-    private void announceBingoParticipants(BingoSession session, List<Component> lines) {
-        for (BingoSession.Participant participant : session.participants()) {
-            Player player = Bukkit.getPlayer(participant.playerId());
-            if (player != null && player.isOnline()) send(player, lines);
-        }
-    }
+    private void announceBingoAudience(BingoRun run, List<Component> lines) { announce(eligibleAudience(run.definition()), lines); }
 
-    private void broadcast(List<Component> lines) {
-        for (Player player : Bukkit.getOnlinePlayers()) send(player, lines);
-    }
+    private void broadcast(List<Component> lines) { for (Player player : Bukkit.getOnlinePlayers()) send(player, lines); }
 
     private static void send(CommandSender sender, List<Component> lines) { for (Component line : lines) sender.sendMessage(line); }
 
@@ -685,6 +695,11 @@ public final class ChatEventManager {
         return parts.isEmpty() ? "none" : String.join(" + ", parts);
     }
 
+    private static String patternsText(Set<BingoPattern> patterns) {
+        return patterns.stream().map(BingoPattern::displayName).sorted().collect(java.util.stream.Collectors.joining(", "));
+    }
+    private static long nextDrawMillis(BingoRun run) { return Math.max(0, (run.nextDrawNanos() - System.nanoTime()) / 1_000_000L); }
+    private static String formatSeconds(long millis) { return String.format(Locale.ROOT, "%.1fs", millis / 1000.0); }
     private static long seconds(long value) { return value <= 0 ? 0 : Math.multiplyExact(value, 1_000_000_000L); }
     private static String formatElapsed(long nanos) { return String.format(Locale.ROOT, "%.3fs", nanos / 1_000_000_000.0); }
 }

@@ -6,7 +6,6 @@ import com.antondev.chats.api.PlexonChatsAPI;
 import com.antondev.chats.diagnostics.ChatDiagnostics;
 import com.antondev.chats.event.ChatEventManager;
 import com.antondev.chats.event.ChatEventStatisticsService;
-import com.antondev.chats.event.bingo.BingoSession;
 import com.antondev.chats.gui.ChatGUIHolder;
 import com.antondev.chats.integration.core.CoreBridge;
 import net.kyori.adventure.text.Component;
@@ -19,7 +18,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.UUID;
 
 public final class ChatCommand implements CommandExecutor, TabCompleter {
     private final PlexonChats plugin;
@@ -37,10 +35,7 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
                     sender.sendMessage(ok ? plugin.getConfigManager().getConfigReloaded() : plugin.getConfigManager().message("config-failed"));
                 }
             }
-            case "channel", "ch", "c" -> {
-                if (args.length < 2) help(sender);
-                else changeChannel(sender, args[1]);
-            }
+            case "channel", "ch", "c" -> { if (args.length < 2) help(sender); else changeChannel(sender, args[1]); }
             case "local", "global" -> changeChannel(sender, sub);
             case "status" -> {
                 if (permission(sender, "plexonchats.manage")) sender.sendMessage(plugin.getConfigManager().message("status", Map.of(
@@ -132,10 +127,13 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
         diagnostic(sender, "Cached event players", String.valueOf(stats.cachedPlayerCount()));
         diagnostic(sender, "Bingo enabled", String.valueOf(events.definitions().values().stream().anyMatch(value -> value.type().name().equals("BINGO") && value.bingo().enabled())));
         diagnostic(sender, "Bingo phase", events.bingoPhase());
-        diagnostic(sender, "Bingo participants", String.valueOf(events.bingoParticipantCount()));
+        diagnostic(sender, "Bingo eligible audience", String.valueOf(events.bingoParticipantCount()));
         diagnostic(sender, "Bingo draws", String.valueOf(events.bingoDrawCount()));
         diagnostic(sender, "Bingo last draw", events.bingoLastDraw());
         diagnostic(sender, "Bingo remaining pool", String.valueOf(events.bingoRemainingCount()));
+        diagnostic(sender, "Bingo next draw", events.bingoNextDrawMillis() < 0 ? "-" : events.bingoNextDrawMillis() + "ms");
+        diagnostic(sender, "Bingo patterns", events.bingoPatterns());
+        diagnostic(sender, "Bingo Discord webhook", events.bingoDiscordEnabled() ? "ENABLED" : "DISABLED");
         diagnostic(sender, "Item preview tokens", String.valueOf(plugin.getItemPreviewManager().size()));
         diagnostic(sender, "Item cleanup task", state(plugin.cleanupTaskActive()));
         diagnostic(sender, "GUI sessions", String.valueOf(guiSessions));
@@ -181,9 +179,7 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
                 ChatEventManager.StartStatus result = args[2].equalsIgnoreCase("random") ? events.startRandom(false) : events.start(args[2]);
                 sender.sendMessage(Component.text("Chat Event start: " + result));
             }
-            case "stop" -> {
-                if (permission(sender, "plexonchats.events.manage")) sender.sendMessage(Component.text(events.stop() ? "Active Chat Event cancelled without reward." : "No active Chat Event."));
-            }
+            case "stop" -> { if (permission(sender, "plexonchats.events.manage")) sender.sendMessage(Component.text(events.stop() ? "Active Chat Event cancelled without reward." : "No active Chat Event.")); }
             case "preview" -> {
                 if (!permission(sender, "plexonchats.events.manage")) return;
                 if (args.length < 3) sender.sendMessage(Component.text("Usage: /chat events preview <event-id>"));
@@ -238,38 +234,31 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
     private void bingo(CommandSender sender, String[] args, ChatEventManager events) {
         String sub = args.length >= 3 ? args[2].toLowerCase(Locale.ROOT) : "status";
         switch (sub) {
-            case "join" -> {
+            case "board", "card" -> {
                 if (!(sender instanceof Player player)) { sender.sendMessage(plugin.getConfigManager().getPlayerOnly()); return; }
                 if (!permission(sender, "plexonchats.events.bingo.play")) return;
-                if (args.length < 4) { sender.sendMessage(Component.text("Usage: /chat events bingo join <run-id>")); return; }
-                try { events.bingoJoin(player, UUID.fromString(args[3])); }
-                catch (IllegalArgumentException ex) { sender.sendMessage(Component.text("That Bingo run ID is invalid.")); }
+                if (!events.showBingoBoard(player)) sender.sendMessage(Component.text("There is no active Bingo board available to you."));
             }
-            case "card" -> {
+            case "claim" -> {
                 if (!(sender instanceof Player player)) { sender.sendMessage(plugin.getConfigManager().getPlayerOnly()); return; }
                 if (!permission(sender, "plexonchats.events.bingo.play")) return;
-                if (!events.showBingoCard(player)) sender.sendMessage(Component.text("You are not participating in an active Bingo round."));
+                events.bingoClaim(player);
             }
-            case "mark" -> {
-                if (!(sender instanceof Player player)) { sender.sendMessage(plugin.getConfigManager().getPlayerOnly()); return; }
-                if (!permission(sender, "plexonchats.events.bingo.play")) return;
-                if (args.length < 5) { sender.sendMessage(Component.text("That Bingo action is incomplete.")); return; }
-                try { events.bingoMark(player, UUID.fromString(args[3]), Integer.parseInt(args[4])); }
-                catch (IllegalArgumentException ex) { sender.sendMessage(Component.text("That Bingo action is invalid.")); }
-            }
+            case "start" -> { if (permission(sender, "plexonchats.events.manage")) sender.sendMessage(Component.text("Bingo start: " + events.startBingo())); }
+            case "stop" -> { if (permission(sender, "plexonchats.events.manage")) sender.sendMessage(Component.text(events.stopBingo() ? "Active Bingo cancelled without reward." : "No active Bingo run.")); }
             case "status" -> {
                 if (!permission(sender, "plexonchats.events.manage")) return;
                 diagnostic(sender, "Bingo phase", events.bingoPhase());
-                diagnostic(sender, "Participants", String.valueOf(events.bingoParticipantCount()));
+                diagnostic(sender, "Run", events.activeType().equals("BINGO") && events.activeRunId() != null ? events.activeRunId().toString() : "-");
                 diagnostic(sender, "Draw count", String.valueOf(events.bingoDrawCount()));
                 diagnostic(sender, "Last draw", events.bingoLastDraw());
                 diagnostic(sender, "Remaining pool", String.valueOf(events.bingoRemainingCount()));
+                diagnostic(sender, "Next draw", events.bingoNextDrawMillis() < 0 ? "-" : events.bingoNextDrawMillis() + "ms");
+                diagnostic(sender, "Patterns", events.bingoPatterns());
+                diagnostic(sender, "Reward", events.bingoRewardProfile());
+                diagnostic(sender, "Discord webhook", events.bingoDiscordEnabled() ? "ENABLED" : "DISABLED");
             }
-            case "participants" -> {
-                if (!permission(sender, "plexonchats.events.manage")) return;
-                sender.sendMessage(Component.text("Bingo participants: " + (events.bingoParticipants().isEmpty() ? "none" : String.join(", ", events.bingoParticipants()))));
-            }
-            default -> sender.sendMessage(Component.text("Usage: /chat events bingo <join|card|status|participants>"));
+            default -> sender.sendMessage(Component.text("Usage: /chat events bingo <board|claim|start|stop|status>"));
         }
     }
 
@@ -311,6 +300,7 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
         helpLine(sender, "plexonchats.local", "/l [message] — Select/use nearby chat");
         helpLine(sender, "plexonchats.tell", "/msg <player> <message> and /reply <message>");
         helpLine(sender, "plexonchats.announce", "/announce <message> — Broadcast");
+        helpLine(sender, "plexonchats.events.bingo.play", "/bingo and /bingo claim — Shared live Bingo board");
         helpLine(sender, "plexonchats.manage", "/chat admin, /chat status and /chat diagnostics — Administration");
         helpLine(sender, "plexonchats.reload", "/chat reload — Transactional configuration reload");
         helpLine(sender, "plexonchats.automessages", "/chat automessages <list|enable|disable|pause|resume|send|test|preview> [group]");
@@ -346,8 +336,8 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
                 if (action.equals("start") && sender.hasPermission("plexonchats.events.manage")) { options.add("random"); options.addAll(plugin.getChatEvents().eventIds()); }
                 else if (action.equals("preview") && sender.hasPermission("plexonchats.events.manage")) options.addAll(plugin.getChatEvents().eventIds());
                 else if (action.equals("bingo")) {
-                    if (sender.hasPermission("plexonchats.events.bingo.play")) options.add("card");
-                    if (sender.hasPermission("plexonchats.events.manage")) options.addAll(List.of("status", "participants"));
+                    if (sender.hasPermission("plexonchats.events.bingo.play")) options.addAll(List.of("board", "claim"));
+                    if (sender.hasPermission("plexonchats.events.manage")) options.addAll(List.of("start", "stop", "status"));
                 }
             }
         }

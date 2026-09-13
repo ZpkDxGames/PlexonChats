@@ -1,10 +1,10 @@
 # ============================================================
-# PlexonChats 3.4 — Enhanced Chat Events / Paper 26.2 / Java 25
+# PlexonChats 3.5 — Shared Claim-Based Bingo / Paper 26.2 / Java 25
 # All admin-owned text supports MiniMessage. UTF-8, spaces only.
 # /chat reload validates the complete candidate before activation.
 # Existing settings are retained, with a backup before schema migration.
 # ============================================================
-config-version: 6
+config-version: 7
 server-name: "Plexon"
 default-channel: LOCAL
 
@@ -237,8 +237,7 @@ gui:
         name: "<red>Close"
         lore: []
 
-  # Kept for v5 migration compatibility. PlexonChats 3.4 renders the Events dashboard
-  # programmatically so live state, pagination and stale-run protection are authoritative.
+  # Kept for migration compatibility. The Events dashboard is rendered programmatically.
   events:
     title: "<gradient:#ffd66b:#ff9f43><bold>Chat Events</bold></gradient>"
     rows: 3
@@ -462,40 +461,32 @@ chat-events:
 
   bingo:
     enabled: true
-    join:
-      duration-seconds: 15
-      min-participants: 2
-    board:
-      variant: BINGO_75
-      free-center: true
     draw:
       first-delay-seconds: 5
       interval-seconds: 5
-      redraw-board-each-draw: false
-    timeout-seconds: 300
-    win-patterns: [ROW, COLUMN, DIAGONAL]
+    winning:
+      horizontal: true
+      vertical: true
+      diagonal: true
+      full-house: false
+    discord:
+      enabled: false
+      webhook-url: ""
+      username: "PlexonChats Bingo"
+      send-start: true
+      send-draws: true
+      send-win: true
     messages:
-      join-open:
+      start:
         - "{separator}"
-        - "<gold><bold>BINGO</bold></gold>"
-        - "<gray>A new Bingo round is starting!</gray>"
-        - ""
-        - "{join_button}"
-        - ""
-        - "<gray>Join closes in:</gray> <yellow>{join_seconds}s</yellow>"
-        - "<gray>Reward:</gray> <gold>{reward}</gold>"
+        - "<gold><bold>BINGO</bold></gold> <gray>Watch the shared board and claim the first completed pattern.</gray>"
+        - "<gray>Use <white>/bingo claim</white> or type <white>bingo</white> in public chat.</gray>"
+        - "<gray>First call in:</gray> <yellow>5s</yellow>"
         - "{separator}"
-      joined:
-        - "<green>You joined this Bingo round.</green>"
-        - "<gray>Your card is shown below.</gray>"
       draw:
-        - "<gold>[BINGO]</gold> <gray>Draw</gray> <yellow>#{draw_count}</yellow><gray>:</gray> <white>{drawn_number}</white> <dark_gray>•</dark_gray> {open_card_button}"
-      marked:
-        - "<gold>[BINGO]</gold> <green>Marked {drawn_number}.</green>"
-      invalid-mark:
-        - "<gold>[BINGO]</gold> <red>That cell cannot be marked yet.</red>"
-      not-participant:
-        - "<red>You are not participating in this Bingo round.</red>"
+        - "<gold>[BINGO]</gold> <gray>Call</gray> <yellow>#{draw_count}</yellow><gray>:</gray> <white>{drawn_number}</white>"
+      invalid-claim:
+        - "<yellow>[BINGO] No enabled winning pattern is complete yet.</yellow>"
 
   reward-profiles:
     basic:
@@ -598,19 +589,8 @@ chat-events:
       weight: 5
       cooldown-seconds: 3600
       reward-profile: epic
-      min-online: 3
-      bingo:
-        join-seconds: 15
-        min-participants: 2
-        board:
-          variant: BINGO_75
-          free-center: true
-        draw:
-          first-delay-seconds: 5
-          interval-seconds: 5
-          redraw-board-each-draw: false
-        timeout-seconds: 300
-        win-patterns: [ROW, COLUMN, DIAGONAL]
+      min-online: 2
+      duration-seconds: 420
 
   sounds:
     start:
@@ -626,17 +606,16 @@ chat-events:
       volume: 1.0
       pitch: 1.0
 
-  # Legacy one-line message keys remain accepted for v5 compatibility. New v6 event
-  # cards are controlled under chat-events.presentation and Bingo under chat-events.bingo.messages.
+  # Legacy one-line keys remain accepted for compatibility. Structured v7 cards are authoritative.
   messages:
     prefix: "<bold><gradient:#ffd66b:#ff9f43>Chat Event</gradient></bold> <dark_gray>» "
     started: "{prompt}"
     winner: "<green><bold>{winner}</bold></green> <gray>answered correctly in <white>{elapsed}</white>! <gray>Reward: {reward_summary}"
     timed-out: "<yellow>Time's up!</yellow> <gray>The answer was <white>{answer}</white>."
     cancelled: "<gray>The current chat event was cancelled."
-    no-events: "<yellow>No eligible chat events are currently available."
-    already-active: "<yellow>A chat event is already active: <white>{event_id}</white>."
-    disabled: "<yellow>Chat Events are disabled."
+    no-events: "<yellow>No eligible chat events are currently available.</yellow>"
+    already-active: "<yellow>A chat event is already active: <white>{event_id}</white>.</yellow>"
+    disabled: "<yellow>Chat Events are disabled.</yellow>"
 
 integrations:
   discordsrv:
