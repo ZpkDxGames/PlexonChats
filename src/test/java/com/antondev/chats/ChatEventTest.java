@@ -125,6 +125,26 @@ class ChatEventTest extends PluginTestBase {
         assertTrue(plugin.getChatEvents().lastEvent().endsWith("/CANCELLED"));
     }
 
+    @Test void emptyV9EventLibraryRecoversBothManualStartPaths() throws Exception {
+        player("ParticipantOne");
+        player("ParticipantTwo");
+        config(yaml -> {
+            yaml.set("config-version", 9);
+            yaml.set("chat-events.scheduler.enabled", false);
+            yaml.set("chat-events.events", null);
+            yaml.createSection("chat-events.events");
+        });
+
+        assertEquals(7, plugin.getChatEvents().configuredCount(), "v10 must restore the complete stock event library");
+        assertEquals(ChatEventManager.StartStatus.STARTED, plugin.getChatEvents().start("unscramble"));
+        assertTrue(plugin.getChatEvents().hasActiveEvent());
+        assertTrue(plugin.getChatEvents().stop());
+
+        assertEquals(ChatEventManager.StartStatus.STARTED, plugin.getChatEvents().startBingo());
+        assertTrue(plugin.getChatEvents().hasActiveEvent());
+        assertTrue(plugin.getChatEvents().stopBingo());
+    }
+
     @Test void masterDisablePreventsManualAndAutomaticStarts() throws Exception {
         config(yaml -> yaml.set("chat-events.enabled", false));
         assertFalse(plugin.getChatEvents().enabled());
