@@ -89,6 +89,9 @@ permissions:
   plexonchats.events.bingo.play:
     description: View and claim shared Bingo Chat Events
     default: true
+  plexonchats.admin.events.discord:
+    description: Inspect and test Discord Chat Events synchronization without exposing webhook secrets
+    default: op
   plexonchats.admin:
     description: Full admin access to PlexonChats
     default: op
@@ -108,6 +111,7 @@ permissions:
       plexonchats.events.stats.others: true
       plexonchats.events.manage: true
       plexonchats.events.bingo.play: true
+      plexonchats.admin.events.discord: true
       plexonchats.formatting: true
       plexonchats.formatting.advanced: true
       plexonchats.bypass.cooldown: true
