@@ -12,6 +12,7 @@ import com.antondev.chats.event.bingo.BingoRun;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -166,27 +167,70 @@ class BingoModelTest {
         assertTrue(run.beginCompletion()); assertFalse(run.beginCompletion());
     }
 
-    @Test void fixedWidthRendererUsesUniformFontGreenMarksNoBracketsAndRunBoundClicks() {
+    @Test void tableRendererHasDeterministicGeometryUniformFontAndRunBoundClicks() {
         BingoRun run = activeRun(7, 1);
         BingoParticipant participant = run.participants().values().iterator().next();
-        int target = participant.board().numberAt(0);
         drawAll(run);
+        int target = participant.board().numberAt(0);
         assertEquals(BingoRun.MarkStatus.MARKED, run.mark(participant.playerId(), run.runId(), target).status());
 
         ChatEventConfig.BingoRender settings = run.definition().bingo().render();
+        assertEquals(ChatEventConfig.BingoRenderStyle.TABLE, settings.style());
         List<String> plain = BingoRenderer.plainLines(participant, settings);
-        assertEquals(6, plain.size());
+        assertEquals(9, plain.size());
         int width = plain.getFirst().length();
         assertTrue(plain.stream().allMatch(line -> line.length() == width));
         assertTrue(plain.stream().noneMatch(line -> line.contains("[") || line.contains("]")));
         assertTrue(plain.stream().allMatch(line -> line.startsWith(" ".repeat(settings.leftPadding()))));
 
+        List<Integer> headerSeparators = indexesOf(plain.get(1), '│');
+        assertEquals(6, headerSeparators.size());
+        for (int row = 3; row < 8; row++) assertEquals(headerSeparators, indexesOf(plain.get(row), '│'));
+
         List<Component> rendered = BingoRenderer.render(run, participant, null);
         assertEquals(Key.key("minecraft:uniform"), rendered.get(1).style().font());
-        Component markedRow = rendered.get(2);
+        Component markedRow = rendered.get(4);
         assertTrue(markedRow.children().stream().anyMatch(child -> NamedTextColor.GREEN.equals(child.style().color())));
-        assertTrue(markedRow.children().stream().anyMatch(child -> child.style().clickEvent() != null
-                && String.valueOf(child.style().clickEvent()).contains(run.runId().toString())));
+        long markClicks = rendered.stream().flatMap(line -> line.children().stream())
+                .filter(child -> child.style().clickEvent() != null)
+                .filter(child -> String.valueOf(child.style().clickEvent()).contains("/bingo mark " + run.runId()))
+                .count();
+        assertEquals(25, markClicks);
+        assertTrue(rendered.getLast().children().stream().anyMatch(child -> child.style().clickEvent() != null
+                && String.valueOf(child.style().clickEvent()).contains("/bingo claim " + run.runId())));
+    }
+
+    @Test void markAndWinningHighlightDoNotChangeVisibleTableGeometry() {
+        BingoRun run = activeRun(8, 1);
+        BingoParticipant participant = run.participants().values().iterator().next();
+        drawAll(run);
+        List<Component> before = BingoRenderer.render(run, participant, null);
+        for (int cell = 0; cell < 5; cell++) {
+            assertEquals(BingoRun.MarkStatus.MARKED,
+                    run.mark(participant.playerId(), run.runId(), participant.board().numberAt(cell)).status());
+        }
+        BingoBoard.Win winning = new BingoBoard.Win(BingoPattern.ROW, Set.of(0, 1, 2, 3, 4));
+        List<Component> after = BingoRenderer.render(run, participant, winning);
+        PlainTextComponentSerializer serializer = PlainTextComponentSerializer.plainText();
+        for (int index = 1; index <= 9; index++) {
+            assertEquals(serializer.serialize(before.get(index)), serializer.serialize(after.get(index)),
+                    "color/underline state must not change visible table text at line " + index);
+        }
+    }
+
+    @Test void compactRendererRemainsBorderlessFallback() {
+        BingoRun run = activeRun(9, 1);
+        BingoParticipant participant = run.participants().values().iterator().next();
+        ChatEventConfig.BingoRender stock = run.definition().bingo().render();
+        ChatEventConfig.BingoRender compact = new ChatEventConfig.BingoRender(
+                ChatEventConfig.BingoRenderStyle.COMPACT, stock.font(), 3, 4, 1, false,
+                stock.showLastCall(), stock.showDrawCount(), stock.onJoin(), stock.onStart(),
+                stock.afterSuccessfulMark(), stock.onEveryDraw());
+        List<String> plain = BingoRenderer.plainLines(participant, compact);
+        assertEquals(6, plain.size());
+        assertTrue(plain.stream().noneMatch(line -> line.indexOf('│') >= 0 || line.indexOf('┌') >= 0 || line.indexOf('└') >= 0));
+        int width = plain.getFirst().length();
+        assertTrue(plain.stream().allMatch(line -> line.length() == width));
     }
 
     private static BingoRun activeRun(int seed, int participants) {
@@ -210,6 +254,12 @@ class BingoModelTest {
             assertNotNull(draw);
         }
         assertEquals(75, run.drawCount());
+    }
+
+    private static List<Integer> indexesOf(String value, char target) {
+        ArrayList<Integer> indexes = new ArrayList<>();
+        for (int index = 0; index < value.length(); index++) if (value.charAt(index) == target) indexes.add(index);
+        return List.copyOf(indexes);
     }
 
     private static ChatEventConfig.Definition definition() {
