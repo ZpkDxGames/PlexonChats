@@ -131,7 +131,6 @@ public final class ChatEventDiscordPublisher implements AutoCloseable {
                     if (state == null) return;
                     if (ref == null) state.ref = created;
                     state.lastWriteNanos = System.nanoTime();
-                    state.recreated = false;
                     warned.set(false);
                     if (update.terminal()) {
                         state.terminalApplied = true;
@@ -145,10 +144,10 @@ public final class ChatEventDiscordPublisher implements AutoCloseable {
                     RunState state = runs.get(runId);
                     if (state == null) return;
                     boolean newer = state.desired != null && state.desired.sequence() > update.sequence();
-                    if (!newer && ref != null && !update.terminal() && !state.terminalRequested && !state.recreated) {
-                        // One safe recreation for a deleted/inaccessible live message.
+                    if (!newer && ref != null && !update.terminal() && !state.terminalRequested && !state.recreationUsed) {
+                        // At most one recreation per run for a deleted/inaccessible live message.
                         state.ref = null;
-                        state.recreated = true;
+                        state.recreationUsed = true;
                         state.desired = update;
                     } else if (!newer && update.terminal()) {
                         state.terminalApplied = true; // terminal gameplay state remains immutable even if Discord failed.
@@ -204,7 +203,7 @@ public final class ChatEventDiscordPublisher implements AutoCloseable {
         private long lastWriteNanos;
         private boolean terminalRequested;
         private boolean terminalApplied;
-        private boolean recreated;
+        private boolean recreationUsed;
         private boolean working;
     }
 }
