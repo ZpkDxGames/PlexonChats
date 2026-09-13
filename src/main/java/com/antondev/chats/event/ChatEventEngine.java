@@ -19,7 +19,7 @@ import java.util.random.RandomGenerator;
 public final class ChatEventEngine {
     private ChatEventEngine() { }
 
-    public enum Type { TYPE, UNSCRAMBLE, MATH, TRIVIA, REVERSE }
+    public enum Type { TYPE, UNSCRAMBLE, MATH, TRIVIA, REVERSE, BINGO }
     public enum MathOperation { ADD, SUBTRACT, MULTIPLY, DIVIDE }
     public enum State { SCHEDULED, ACTIVE, WON, TIMED_OUT, CANCELLED }
 
@@ -74,6 +74,7 @@ public final class ChatEventEngine {
     @FunctionalInterface
     public interface Generator { Round generate(ChatEventConfig.Definition definition, RandomGenerator random); }
 
+    /** BINGO is deliberately absent: it has its own multi-phase server-authoritative session engine. */
     public static Map<Type, Generator> generators() {
         EnumMap<Type, Generator> values = new EnumMap<>(Type.class);
         values.put(Type.TYPE, ChatEventEngine::type);

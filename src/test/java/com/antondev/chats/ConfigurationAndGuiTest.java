@@ -2,7 +2,6 @@ package com.antondev.chats;
 
 import com.antondev.chats.gui.*;
 import com.antondev.chats.player.PreferenceStore;
-import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.event.inventory.*;
@@ -41,7 +40,7 @@ class ConfigurationAndGuiTest extends PluginTestBase {
         assertEquals("!!", plugin.getConfigManager().getGlobalShortcutPrefix());
         assertEquals("<gold>LEGACY {player}: {message}", plugin.getConfigManager().getGlobalFormat());
         try (var files = Files.list(file.getParent())) {
-            var backups = files.filter(path -> path.getFileName().toString().startsWith("config-before-v5-")).toList();
+            var backups = files.filter(path -> path.getFileName().toString().startsWith("config-before-v6-")).toList();
             assertEquals(1, backups.size());
             assertEquals(legacy, Files.readString(backups.getFirst()));
         }
@@ -63,12 +62,12 @@ class ConfigurationAndGuiTest extends PluginTestBase {
                 assertEquals(value, migrated.get(key), "Preserve 2.0 setting: " + key);
             }
         });
-        assertEquals(5, migrated.getInt("config-version"));
+        assertEquals(6, migrated.getInt("config-version"));
         assertEquals("DEFAULT", migrated.getString("connection-messages.join.mode"));
         assertNotNull(migrated.getConfigurationSection("integrations.discordsrv"));
         assertNotNull(migrated.getConfigurationSection("chat-events"));
         try (var files = Files.list(path.getParent())) {
-            var backup = files.filter(file -> file.getFileName().toString().startsWith("config-before-v5-")).findFirst().orElseThrow();
+            var backup = files.filter(file -> file.getFileName().toString().startsWith("config-before-v6-")).findFirst().orElseThrow();
             assertEquals(source, Files.readString(backup));
         }
     }
@@ -77,14 +76,14 @@ class ConfigurationAndGuiTest extends PluginTestBase {
         Files.writeString(path, "config-version: 2\ngui:\n  items: {}\nauto-messages:\n  groups: {}\n");
         assertTrue(plugin.reloadPlugin());
         var migrated = YamlConfiguration.loadConfiguration(path.toFile());
-        assertEquals(5, migrated.getInt("config-version"));
+        assertEquals(6, migrated.getInt("config-version"));
         assertTrue(migrated.getConfigurationSection("gui.items").getKeys(false).isEmpty());
         assertTrue(migrated.getConfigurationSection("auto-messages.groups").getKeys(false).isEmpty());
         assertNotNull(migrated.getConfigurationSection("chat-events"));
     }
     @Test void releaseMetadataMatchesChatEventsCandidate() {
-        assertEquals("3.3.0", plugin.getPluginMeta().getVersion());
-        assertEquals(5, com.antondev.chats.config.ConfigUpgrader.VERSION);
+        assertEquals("3.4.0", plugin.getPluginMeta().getVersion());
+        assertEquals(6, com.antondev.chats.config.ConfigUpgrader.VERSION);
     }
     @Test void rowsAndCustomButtonPositionsAreHonored() throws Exception {
         var player = player("Viewer");
@@ -121,9 +120,10 @@ class ConfigurationAndGuiTest extends PluginTestBase {
     @Test void chatEventsPageUsesDedicatedSafeHolder() {
         var player = player("Admin");
         player.addAttachment(plugin, "plexonchats.gui", true);
+        player.addAttachment(plugin, "plexonchats.events", true);
         player.addAttachment(plugin, "plexonchats.events.manage", true);
         plugin.getChatGUI().openPage(player, ChatGUIHolder.Page.EVENTS);
-        assertEquals(27, player.getOpenInventory().getTopInventory().getSize());
+        assertEquals(45, player.getOpenInventory().getTopInventory().getSize());
         assertInstanceOf(ChatGUIHolder.class, player.getOpenInventory().getTopInventory().getHolder());
         assertEquals(ChatGUIHolder.Page.EVENTS, ((ChatGUIHolder) player.getOpenInventory().getTopInventory().getHolder()).getPage());
     }
