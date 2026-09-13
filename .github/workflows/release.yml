@@ -51,11 +51,11 @@ jobs:
           set -euo pipefail
           VERSION='${{ steps.project.outputs.version }}'
           test "${GITHUB_REF_NAME}" = 'release/stable'
-          test "${VERSION}" = '4.0.0'
+          test "${VERSION}" = '4.0.1'
           case "${VERSION}" in *-*) echo "Stable workflow refuses prerelease version: ${VERSION}" >&2; exit 1;; esac
           git fetch origin main
           test "${GITHUB_SHA}" = "$(git rev-parse origin/main)"
-          git merge-base --is-ancestor 2099d8b50d267b9a430bc1ef34a18415b020318c HEAD
+          git merge-base --is-ancestor 657d27766bce60235bc50602b4dd4d14b9e6998c HEAD
           test -s ".release/${VERSION}.md"
           if gh release view "v${VERSION}" >/dev/null 2>&1; then echo "v${VERSION} release already exists" >&2; exit 1; fi
           if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null 2>&1; then echo "v${VERSION} tag already exists" >&2; exit 1; fi
@@ -166,10 +166,10 @@ jobs:
           commit=${GITHUB_SHA}
           tag=v${VERSION}
           version=${VERSION}
-          baseline_tag=v3.6.2
-          baseline_sha=2099d8b50d267b9a430bc1ef34a18415b020318c
-          rollback_tag=v3.6.2
-          rollback_sha=2099d8b50d267b9a430bc1ef34a18415b020318c
+          baseline_tag=v4.0.0
+          baseline_sha=657d27766bce60235bc50602b4dd4d14b9e6998c
+          rollback_tag=v4.0.0
+          rollback_sha=657d27766bce60235bc50602b4dd4d14b9e6998c
           java=25
           class_major=69
           paper=26.2
