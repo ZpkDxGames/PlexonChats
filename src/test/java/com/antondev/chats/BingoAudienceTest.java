@@ -39,7 +39,7 @@ class BingoAudienceTest extends PluginTestBase {
         assertNotNull(observerDraw, "draw traffic is shared, not participant-only");
     }
 
-    @Test void invalidCommandAndPublicChatClaimsDoNotEndTheRun() {
+    @Test void invalidCommandAndPublicChatClaimsDoNotEndTheRun() throws Exception {
         var player = player("Claimant");
         configureBingo();
         assertEquals(ChatEventManager.StartStatus.STARTED, plugin.getChatEvents().start("bingo-classic"));
@@ -53,7 +53,7 @@ class BingoAudienceTest extends PluginTestBase {
         assertEquals("ACTIVE", plugin.getChatEvents().bingoPhase());
     }
 
-    private void configureBingo() {
+    private void configureBingo() throws Exception {
         config(yaml -> {
             yaml.set("chat-events.scheduler.enabled", false);
             yaml.set("chat-events.events.bingo-classic.cooldown-seconds", 0);
