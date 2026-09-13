@@ -19,6 +19,8 @@ import java.util.Set;
 /** Strict validator used before a Chat Events configuration generation is published. */
 public final class ChatEventValidation {
     private static final Set<String> KEY_TIERS = Set.of("BASIC", "RARE", "EPIC", "LEGENDARY");
+    private static final MiniMessage STRICT_MINI_MESSAGE = MiniMessage.builder().strict(true).build();
+
     private ChatEventValidation() { }
 
     public static void validate(ConfigurationSection root) {
@@ -49,7 +51,11 @@ public final class ChatEventValidation {
         validateEvents(root.getConfigurationSection("events"), rewardIds, duration, defaultsMinOnline);
         for (String key : List.of("start", "win", "timeout")) validateSound(root, "sounds." + key + ".sound");
         ConfigurationSection messages = root.getConfigurationSection("messages");
-        if (messages != null) for (String key : messages.getKeys(false)) if (messages.isString(key)) validateMiniMessage("chat-events.messages." + key, messages.getString(key, ""));
+        if (messages != null) {
+            for (String key : messages.getKeys(false)) {
+                if (messages.isString(key)) validateMiniMessage("chat-events.messages." + key, messages.getString(key, ""));
+            }
+        }
     }
 
     private static void validatePresentation(ConfigurationSection presentation) {
@@ -59,7 +65,9 @@ public final class ChatEventValidation {
         if (before < 0 || before > 3) throw invalid("chat-events.presentation.blank-lines-before", "must be between 0 and 3");
         if (after < 0 || after > 3) throw invalid("chat-events.presentation.blank-lines-after", "must be between 0 and 3");
         validateMiniMessage("chat-events.presentation.separator", presentation.getString("separator", ""));
-        for (String key : List.of("start", "winner", "timeout", "cancelled")) validateLines(presentation, key, "chat-events.presentation." + key, true);
+        for (String key : List.of("start", "winner", "timeout", "cancelled")) {
+            validateLines(presentation, key, "chat-events.presentation." + key, true);
+        }
         ConfigurationSection typeNames = presentation.getConfigurationSection("type-names");
         if (typeNames != null) {
             for (String key : typeNames.getKeys(false)) {
@@ -222,7 +230,7 @@ public final class ChatEventValidation {
     }
 
     private static void validateMiniMessage(String path, String value) {
-        try { MiniMessage.miniMessage().deserialize(value); }
+        try { STRICT_MINI_MESSAGE.deserialize(value); }
         catch (IllegalArgumentException ex) { throw invalid(path, "contains invalid MiniMessage: " + ex.getMessage()); }
     }
 
@@ -245,5 +253,7 @@ public final class ChatEventValidation {
         if (value < min || value > max) throw invalid(path, "must be between " + min + " and " + max);
     }
 
-    private static IllegalArgumentException invalid(String path, String message) { return new IllegalArgumentException(path + " " + message); }
+    private static IllegalArgumentException invalid(String path, String message) {
+        return new IllegalArgumentException(path + " " + message);
+    }
 }
