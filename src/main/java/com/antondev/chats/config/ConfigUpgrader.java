@@ -255,7 +255,7 @@ public final class ConfigUpgrader {
                 "{separator}"), List.of(
                 "{separator}",
                 "<yellow><bold>⌛ {event_type} EXPIRED</bold></yellow>",
-                "<gray>No correct answer <dark_gray>•</dark_gray> Answer <dark_gray>›</dark_gray> <white>{answer}</white>",
+                "<gray>No correct answer</gray> <dark_gray>•</dark_gray> <gray>Answer</gray> <dark_gray>›</dark_gray> <white>{answer}</white>",
                 "{separator}"));
 
         replaceListIfExact(current, "chat-events.presentation.cancelled", List.of(
