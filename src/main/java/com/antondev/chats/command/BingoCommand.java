@@ -68,7 +68,9 @@ public final class BingoCommand implements CommandExecutor, TabCompleter {
         line(sender, "Next call", events.bingoNextDrawMillis() < 0 ? "-" : String.format(Locale.ROOT, "%.1fs", events.bingoNextDrawMillis() / 1000.0));
         line(sender, "Patterns", events.bingoPatterns());
         line(sender, "Reward profile", events.bingoRewardProfile());
-        line(sender, "Discord webhook", events.bingoDiscordEnabled() ? "ENABLED" : "DISABLED");
+        line(sender, "Discord sync", events.bingoDiscordEnabled() ? "ENABLED" : "DISABLED");
+        line(sender, "Discord transport", events.discordTransport() + "/" + events.discordTransportStatus());
+        line(sender, "Discord message", events.discordMessageState());
     }
 
     private boolean permission(CommandSender sender, String permission) {
