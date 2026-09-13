@@ -1,6 +1,6 @@
-# PlexonChats Configuration — 4.0.0
+# PlexonChats Configuration — 4.0.1
 
-PlexonChats 4.0.0 uses two administrator-facing YAML files with separate responsibilities. Run `/chat reload` after editing either file. The plugin validates the candidate generation before replacing the current runtime state.
+PlexonChats 4.0.1 uses two administrator-facing YAML files with separate responsibilities. Run `/chat reload` after editing either file. The plugin validates the candidate generation before replacing the current runtime state.
 
 ## Ownership split
 
@@ -17,9 +17,11 @@ PlexonChats 4.0.0 uses two administrator-facing YAML files with separate respons
 - Discord event transport/credentials;
 - other integrations.
 
+Bingo draw pacing is **not** duplicated in `config.yml`.
+
 ### `data.yml`
 
-`data.yml` starts at schema **1** and owns gameplay/minigame data:
+`data.yml` remains schema **1** and owns gameplay/minigame data:
 
 ```yaml
 schema-version: 1
@@ -38,16 +40,6 @@ randomizer:
   history-size: 2
 
 minigames:
-  type-rush:
-    type: TYPE
-    enabled: true
-    weight: 20
-    cooldown-seconds: 600
-    duration-seconds: 20
-    reward-profile: basic
-    accepted-channels: [LOCAL, GLOBAL]
-    values: []
-
   bingo-classic:
     type: BINGO
     enabled: true
@@ -71,7 +63,7 @@ minigames:
       free-center: false
     draws:
       first-call-delay-seconds: 5
-      interval-seconds: 8
+      interval-seconds: 5
       range-min: 1
       range-max: 75
     winning:
@@ -80,11 +72,12 @@ minigames:
       diagonal: true
       full-house: false
     render:
+      style: TABLE
       font: "minecraft:uniform"
-      left-padding: 3
+      left-padding: 2
       cell-width: 4
-      column-gap: 1
-      show-border: false
+      column-gap: 0
+      show-border: true
       show-last-call: true
       show-draw-count: true
       on-join: true
@@ -94,6 +87,17 @@ minigames:
 ```
 
 The bundled file contains the complete stock TYPE/UNSCRAMBLE/MATH/TRIVIA/REVERSE/BINGO library. Runtime cards, manual marks, call history/deadlines, and current cooldown timestamps remain runtime state rather than being rewritten into `data.yml`.
+
+## Bingo renderer settings
+
+`render.style` accepts:
+
+- `TABLE` — deterministic table geometry with fixed cell widths and separators; fresh 4.0.1 default.
+- `COMPACT` — 4.0.0-compatible borderless presentation.
+
+`show-border` remains accepted for compatibility. `TABLE` plus `show-border: true` renders the full box; `TABLE` plus `show-border: false` keeps deterministic aligned cell separators without exterior borders. Existing 4.0.0 schema-1 files that do not contain `render.style` are not rewritten solely to add the key; runtime compatibility is inferred from their existing `show-border` value.
+
+The whole table grid uses the configured fixed-width Adventure font. `minecraft:uniform` is the stock value. Marked/winning states must not alter the visible characters inside a cell.
 
 ## Scheduler/randomizer validation
 
@@ -108,19 +112,44 @@ At minimum:
 - lobby duration must be positive;
 - reminder thresholds must be positive, unique, and not exceed lobby duration;
 - normal/admin participant minimums must be at least 1;
-- first-call delay must be non-negative;
-- draw interval must be positive;
+- first-call delay must be `0..300` seconds;
+- draw interval must be `1..300` seconds;
 - at least one winning pattern must be enabled;
-- render padding/cell width/gap are bounded;
+- `render.style` must be `TABLE` or `COMPACT`;
+- renderer font must be a nonblank valid Adventure key;
+- left padding, cell width, and column gap are bounded;
 - event weight/cooldown/duration must be valid.
 
 Where safe, one malformed minigame is disabled for that runtime generation rather than taking down unrelated chat features.
 
 ## Bingo mechanics controlled by `data.yml`
 
-The Bingo definition controls lobby timing, participation thresholds, card/free-center rule, draw timing, enabled patterns, render geometry, weight, cooldown, duration, reward-profile reference, channels, world/permission eligibility, and normal minimum-online requirements.
+The Bingo definition controls lobby timing, participation thresholds, card/free-center rule, draw timing, enabled patterns, renderer behavior/geometry, weight, cooldown, duration, reward-profile reference, channels, world/permission eligibility, and normal minimum-online requirements.
 
 Draw calls and participant marks are separate. A called number is only eligible to be manually marked; it is never automatically inserted into a participant's marked-cell set.
+
+Fresh 4.0.1 data uses a five-second interval, but administrator values remain authoritative. For example, `interval-seconds: 7` remains 7 after reload. Existing 4.0.0 installations retaining `8` are not silently changed.
+
+## Existing-server 5-second cadence
+
+To adopt the recommended 4.0.1 pacing on an existing server, edit:
+
+```yaml
+# plugins/PlexonChats/data.yml
+minigames:
+  bingo-classic:
+    draws:
+      first-call-delay-seconds: 5
+      interval-seconds: 5
+```
+
+Then apply it with:
+
+```text
+/chat reload
+```
+
+No equivalent Bingo interval should be added to `config.yml`.
 
 ## Discord configuration
 
@@ -146,20 +175,14 @@ chat-events:
 
 `chat-events.discord.webhook.url` is a secret. It is not emitted by normal commands, GUI, diagnostics, embeds, or player-facing errors, and it is never migrated into `data.yml`.
 
-## First v4 migration
+## Migration and preservation
 
-When `data.yml` is absent, PlexonChats creates:
+When `data.yml` is absent, PlexonChats creates `config-before-v4-<timestamp>.yml` and migrates compatible administrator-owned older Chat Events gameplay into schema-1 `data.yml`. Secrets remain in `config.yml`.
 
-```text
-config-before-v4-<timestamp>.yml
-```
-
-Then it migrates compatible administrator-owned v3.6.2 Chat Events gameplay into schema-1 `data.yml`, including custom enabled states, weights, cooldowns, durations, minimum-online values, reward references, channels, content pools, math ranges, and compatible Bingo draw/pattern settings. New lobby/manual-mark settings come from v4 defaults.
-
-If `data.yml` already exists, the first-start migration does not overwrite its administrator values.
+4.0.1 does not bump schema 1 just to change stock defaults. If `data.yml` already exists, its administrator values are preserved. This includes a deliberately configured 8-second Bingo interval, renderer geometry, and compatibility presentation settings.
 
 ## Reload safety
 
-`/chat reload` reloads `config.yml` and `data.yml` as one runtime generation. Invalid structural data/configuration does not silently replace the current known-good configuration. Active event/Bingo runtime state is closed through the normal manager lifecycle rather than persisted as a half-valid YAML snapshot.
+`/chat reload` reloads `config.yml` and `data.yml` as one runtime generation. Invalid structural data/configuration does not silently replace the current known-good configuration. Active event/Bingo runtime state is closed through the normal manager lifecycle rather than persisted as a half-valid YAML snapshot, and stale draw tasks must not continue after reload.
 
 See [BINGO.md](BINGO.md), [CHAT-EVENTS.md](CHAT-EVENTS.md), and [UPGRADING.md](UPGRADING.md).

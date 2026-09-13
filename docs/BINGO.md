@@ -1,6 +1,6 @@
-# PlexonChats Bingo — 4.0.0
+# PlexonChats Bingo — 4.0.1
 
-PlexonChats 4.0.0 replaces the v3.6.2 shared automatic-mark Bingo model with explicit participation, participant-owned cards, and manual server-validated marks. Minecraft remains authoritative; Discord remains presentation-only.
+PlexonChats 4.0.1 keeps the accepted 4.0.0 explicit-participation, participant-owned, manual-mark Bingo model and focuses on fixed table geometry plus slower configurable calls. Minecraft remains authoritative; Discord remains presentation-only.
 
 ## State model
 
@@ -10,7 +10,7 @@ One Bingo run uses:
 IDLE -> LOBBY -> STARTING -> ACTIVE -> WON / TIMED_OUT / CANCELLED
 ```
 
-Bingo still reserves the same global Chat Events slot as other event types. A pending Bingo lobby therefore prevents another Chat Event from starting concurrently.
+Bingo reserves the same global Chat Events slot as other event types. A pending Bingo lobby therefore prevents another Chat Event from starting concurrently.
 
 ## Lobby and joining
 
@@ -43,7 +43,7 @@ Each participant owns one stable card for the run. Cards use traditional 75-ball
 - G: `46–60`
 - O: `61–75`
 
-Stock v4 uses 25 numeric cells with no FREE center. Values are unique inside a card. Different participants receive independently generated cards, while reopening `/bingo` for the same run returns that participant's same card.
+Stock 4.0.1 uses 25 numeric cells with no FREE center. Values are unique inside a card. Different participants receive independently generated cards, while reopening `/bingo` for the same run returns that participant's same card.
 
 No participant card is a shared authority object.
 
@@ -62,23 +62,43 @@ Every playable card cell is rendered as a run-bound click action. Internally the
 5. the number has actually been called;
 6. the cell is not already marked.
 
-A successful mark mutates only that participant's marked-cell set and immediately refreshes their card. A marked number is green, fixed width, and has no brackets.
-
-An uncalled click returns `NOT_CALLED`, leaves state unchanged, and reports the problem through the action bar. Old chat cards from an earlier run return `STALE_RUN` and cannot mutate a newer run.
+A successful mark mutates only that participant's marked-cell set and immediately refreshes their card. An uncalled click returns `NOT_CALLED`, leaves state unchanged, and reports the problem through the action bar. Old chat cards from an earlier run return `STALE_RUN` and cannot mutate a newer run.
 
 ## Table rendering
 
-The Minecraft grid deliberately uses the fixed-width `minecraft:uniform` font. Numeric cells use consistent two-digit padding, configured left padding, cell width, and column gap. Styling a cell does not alter its text width, so marked/unmarked rows keep the same alignment.
+Fresh 4.0.1 gameplay data uses the `TABLE` renderer:
 
-Relevant stock settings:
+```text
+✦ BINGO — YOUR CARD
+
+┌────┬────┬────┬────┬────┐
+│ B  │ I  │ N  │ G  │ O  │
+├────┼────┼────┼────┼────┤
+│ 05 │ 27 │ 40 │ 57 │ 69 │
+│ 15 │ 24 │ 32 │ 47 │ 65 │
+│ 04 │ 20 │ 41 │ 53 │ 61 │
+│ 07 │ 21 │ 45 │ 54 │ 63 │
+│ 12 │ 25 │ 39 │ 48 │ 73 │
+└────┴────┴────┴────┴────┘
+
+Last: B-9    Draws: 21/75
+[ CALL BINGO ]
+```
+
+The complete grid explicitly uses the configured fixed-width font, stock `minecraft:uniform`. Borders, separators, headers, number cells, and in-grid padding all use the same font. Number cells render as two digits inside four visible fixed-width characters, for example `" 05 "`.
+
+Marked and unmarked values use exactly the same visible cell text. Marked cells change color only. Winning cells may change color and use underline, but never add markers or bold that changes glyph advance. Separators are non-clickable while each number remains independently clickable.
+
+Stock settings:
 
 ```yaml
 render:
+  style: TABLE
   font: "minecraft:uniform"
-  left-padding: 3
+  left-padding: 2
   cell-width: 4
-  column-gap: 1
-  show-border: false
+  column-gap: 0
+  show-border: true
   show-last-call: true
   show-draw-count: true
   on-join: true
@@ -86,6 +106,45 @@ render:
   after-successful-mark: true
   on-every-draw: false
 ```
+
+`COMPACT` preserves the 4.0.0 borderless presentation. Existing schema-1 4.0.0 files are not rewritten merely to add `render.style`; when the key is absent, the runtime preserves compatibility from the existing `show-border` value. `TABLE` with `show-border: false` retains deterministic aligned cells/internal separators without exterior box borders.
+
+Unicode box drawing is the stock representation, but real-client alignment is authoritative. If the target client proves those glyphs visually inconsistent under `minecraft:uniform`, prefer an ASCII `+----+` / `| 05 |` table over decorative misalignment.
+
+## Call pacing
+
+Bingo timing is owned only by the Bingo definition in `data.yml`:
+
+```yaml
+draws:
+  first-call-delay-seconds: 5
+  interval-seconds: 5
+  range-min: 1
+  range-max: 75
+```
+
+Fresh 4.0.1 data therefore calls the first number after the configured five-second delay and subsequent numbers every five seconds. The scheduler consumes the loaded definition; the interval is not hardcoded in Java and is not duplicated in `config.yml`.
+
+Existing administrator-owned values are preserved. A server upgrading from 4.0.0 that still has `interval-seconds: 8` remains at 8 until the administrator changes it.
+
+To adopt the recommended cadence on an existing server:
+
+```yaml
+# plugins/PlexonChats/data.yml
+minigames:
+  bingo-classic:
+    draws:
+      first-call-delay-seconds: 5
+      interval-seconds: 5
+```
+
+Then run:
+
+```text
+/chat reload
+```
+
+The full card is deliberately not reprinted every five seconds by default. Stock `render.on-every-draw` remains `false`; each call uses the compact draw announcement, while full cards appear on configured join/start/mark/view paths.
 
 ## Claims and winning patterns
 
@@ -158,15 +217,15 @@ Bingo gameplay configuration is owned by `plugins/PlexonChats/data.yml` schema 1
 
 Presentation/reward-profile bodies/Discord credentials remain in `config.yml`. Runtime cards, marks, call deadlines, and cooldown timestamps are not persisted into `data.yml` on each tick.
 
-## v3.6.2 migration
+## Upgrade behavior
 
-When v4 first starts without `data.yml`, PlexonChats backs up `config.yml` as `config-before-v4-<timestamp>.yml`, then migrates compatible administrator-owned Chat Events gameplay into schema-1 `data.yml`. Existing custom pools, weights, cooldowns, durations, minimum-online values, reward references, channels, math ranges, and compatible Bingo scheduler/pattern settings are preserved. New lobby/manual-mark fields use v4 defaults. Secrets are not copied.
+4.0.1 does not bump the `data.yml` schema solely for renderer defaults or call pacing. Existing schema-1 files remain administrator-owned and are validated as-is. A custom interval such as 7 seconds remains 7 after reload; an existing 8-second 4.0.0 interval is not silently converted to 5.
 
-If `data.yml` already exists, it is authoritative and is not overwritten by legacy gameplay values in `config.yml`.
+Malformed Bingo renderer/timing values disable the malformed minigame generation where safe rather than taking down unrelated normal chat or standard Chat Events.
 
 ## Runtime certification
 
-GitHub source/CI closure is not a substitute for real-client visual/runtime evidence. Production validation should confirm the 60/30/15/5 reminders, two distinct participant cards, no automatic marks, action-bar rejection of uncalled cells, green fixed-width marks, exact-one winner/reward/stat, one-player admin test, normal scheduled minimum, reloadable `data.yml`, and Discord metadata-only behavior.
+GitHub source/CI closure is not a substitute for real-client visual/runtime evidence. Production validation should confirm at representative GUI scales that all vertical separators form straight columns, marks and winner highlighting do not shift geometry, cells remain clickable, five-second calls are readable, full cards do not flood chat, manual-mark authority remains intact, and Discord remains metadata-only.
 
 Until that evidence is collected, release provenance remains:
 

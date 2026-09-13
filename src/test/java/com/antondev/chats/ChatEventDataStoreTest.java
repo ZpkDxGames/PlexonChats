@@ -1,5 +1,6 @@
 package com.antondev.chats;
 
+import com.antondev.chats.event.ChatEventConfig;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
 
@@ -9,10 +10,20 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ChatEventDataStoreTest extends PluginTestBase {
-    @Test void freshRuntimeHasSchemaOneDataFile() {
+    @Test void freshRuntimeHasSchemaOneDataFileAnd401BingoDefaults() {
         assertEquals(1, plugin.getChatEventData().schemaVersion());
         assertTrue(Files.isRegularFile(plugin.getDataFolder().toPath().resolve("data.yml")));
         assertEquals(7, plugin.getChatEvents().configuredCount());
+        var bingo = plugin.getChatEvents().definition("bingo-classic").bingo();
+        assertEquals(5, bingo.firstDrawDelaySeconds());
+        assertEquals(5, bingo.drawIntervalSeconds());
+        assertEquals(ChatEventConfig.BingoRenderStyle.TABLE, bingo.render().style());
+        assertEquals("minecraft:uniform", bingo.render().font());
+        assertEquals(2, bingo.render().leftPadding());
+        assertEquals(4, bingo.render().cellWidth());
+        assertEquals(0, bingo.render().columnGap());
+        assertTrue(bingo.render().showBorder());
+        assertFalse(bingo.render().onEveryDraw());
     }
 
     @Test void firstV4MigrationPreservesAdministratorGameplayValuesAndNeverCopiesSecrets() throws Exception {
@@ -65,5 +76,51 @@ class ChatEventDataStoreTest extends PluginTestBase {
         assertEquals(List.of("data-authority"), plugin.getChatEventData().root().getStringList("minigames.type-rush.values"));
         assertEquals(77, plugin.getChatEventData().root().getInt("minigames.type-rush.weight"));
         assertEquals(77, plugin.getChatEvents().definition("type-rush").weight());
+    }
+
+    @Test void administratorOwnedBingoIntervalAndRendererCompatibilityArePreserved() throws Exception {
+        var dataFile = plugin.getDataFolder().toPath().resolve("data.yml").toFile();
+        YamlConfiguration data = YamlConfiguration.loadConfiguration(dataFile);
+        data.set("minigames.bingo-classic.draws.interval-seconds", 7);
+        data.set("minigames.bingo-classic.render.style", null);
+        data.set("minigames.bingo-classic.render.show-border", false);
+        data.save(dataFile);
+
+        assertTrue(plugin.reloadPlugin());
+        var bingo = plugin.getChatEvents().definition("bingo-classic").bingo();
+        assertEquals(7, bingo.drawIntervalSeconds(), "custom administrator pacing must remain authoritative");
+        assertEquals(ChatEventConfig.BingoRenderStyle.COMPACT, bingo.render().style(),
+                "4.0 render blocks without style must retain the borderless compatibility presentation");
+        YamlConfiguration persisted = YamlConfiguration.loadConfiguration(dataFile);
+        assertEquals(7, persisted.getInt("minigames.bingo-classic.draws.interval-seconds"));
+        assertFalse(persisted.contains("minigames.bingo-classic.render.style"),
+                "schema-1 administrator files must not be rewritten solely to add 4.0.1 renderer defaults");
+    }
+
+    @Test void dataYmlBingoPacingWinsOverLegacyMigrationCompatibilityValue() throws Exception {
+        var dataFile = plugin.getDataFolder().toPath().resolve("data.yml").toFile();
+        YamlConfiguration data = YamlConfiguration.loadConfiguration(dataFile);
+        data.set("minigames.bingo-classic.draws.interval-seconds", 6);
+        data.save(dataFile);
+
+        var configFile = plugin.getDataFolder().toPath().resolve("config.yml").toFile();
+        YamlConfiguration config = YamlConfiguration.loadConfiguration(configFile);
+        config.set("chat-events.bingo.draw.interval-seconds", 99);
+        config.save(configFile);
+
+        assertTrue(plugin.reloadPlugin());
+        assertEquals(6, plugin.getChatEvents().definition("bingo-classic").bingo().drawIntervalSeconds(),
+                "legacy config.yml timing may remain for first-v4 migration compatibility but must never override v4 data.yml authority");
+    }
+
+    @Test void invalidZeroBingoIntervalQuarantinesOnlyBingoDefinition() throws Exception {
+        var dataFile = plugin.getDataFolder().toPath().resolve("data.yml").toFile();
+        YamlConfiguration data = YamlConfiguration.loadConfiguration(dataFile);
+        data.set("minigames.bingo-classic.draws.interval-seconds", 0);
+        data.save(dataFile);
+
+        assertTrue(plugin.reloadPlugin());
+        assertFalse(plugin.getChatEvents().definition("bingo-classic").enabled());
+        assertTrue(plugin.getChatEvents().definition("type-rush").enabled());
     }
 }

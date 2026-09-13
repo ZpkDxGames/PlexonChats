@@ -27,7 +27,7 @@ class BingoAudienceTest extends PluginTestBase {
         assertTrue(plugin.getChatEvents().showBingoBoard(first));
         assertTrue(plugin.getChatEvents().showBingoBoard(second));
         assertFalse(plugin.getChatEvents().showBingoBoard(observer), "non-participant must never see another player's card");
-        assertEquals(6, plugin.getChatEvents().bingoBoardPreview().size());
+        assertEquals(9, plugin.getChatEvents().bingoBoardPreview().size(), "stock TABLE preview includes top/header/middle/five rows/bottom");
     }
 
     @Test void adminFastStartWorksWithExactlyOneExplicitParticipant() throws Exception {
