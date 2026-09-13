@@ -19,6 +19,7 @@ import java.util.Set;
 /** Strict validator used before a Chat Events configuration generation is published. */
 public final class ChatEventValidation {
     private static final Set<String> KEY_TIERS = Set.of("BASIC", "RARE", "EPIC", "LEGENDARY");
+    private static final MiniMessage LEGACY_MINI_MESSAGE = MiniMessage.miniMessage();
     private static final MiniMessage STRICT_MINI_MESSAGE = MiniMessage.builder().strict(true).build();
 
     private ChatEventValidation() { }
@@ -53,7 +54,7 @@ public final class ChatEventValidation {
         ConfigurationSection messages = root.getConfigurationSection("messages");
         if (messages != null) {
             for (String key : messages.getKeys(false)) {
-                if (messages.isString(key)) validateMiniMessage("chat-events.messages." + key, messages.getString(key, ""));
+                if (messages.isString(key)) validateLegacyMiniMessage("chat-events.messages." + key, messages.getString(key, ""));
             }
         }
     }
@@ -64,9 +65,9 @@ public final class ChatEventValidation {
         int after = presentation.getInt("blank-lines-after", 1);
         if (before < 0 || before > 3) throw invalid("chat-events.presentation.blank-lines-before", "must be between 0 and 3");
         if (after < 0 || after > 3) throw invalid("chat-events.presentation.blank-lines-after", "must be between 0 and 3");
-        validateMiniMessage("chat-events.presentation.separator", presentation.getString("separator", ""));
+        validateStrictMiniMessage("chat-events.presentation.separator", presentation.getString("separator", ""));
         for (String key : List.of("start", "winner", "timeout", "cancelled")) {
-            validateLines(presentation, key, "chat-events.presentation." + key, true);
+            validateLines(presentation, key, "chat-events.presentation." + key, true, true);
         }
         ConfigurationSection typeNames = presentation.getConfigurationSection("type-names");
         if (typeNames != null) {
@@ -101,7 +102,7 @@ public final class ChatEventValidation {
         }
         ConfigurationSection messages = bingo.getConfigurationSection("messages");
         if (requireMessages && messages != null) {
-            for (String key : messages.getKeys(false)) validateLines(messages, key, path + ".messages." + key, false);
+            for (String key : messages.getKeys(false)) validateLines(messages, key, path + ".messages." + key, false, true);
         }
     }
 
@@ -158,7 +159,7 @@ public final class ChatEventValidation {
             if (type != ChatEventEngine.Type.BINGO) {
                 String prompt = event.getString("prompt", "");
                 if (prompt.isBlank()) throw invalid(path + ".prompt", "must not be blank");
-                validateMiniMessage(path + ".prompt", prompt);
+                validateLegacyMiniMessage(path + ".prompt", prompt);
             }
 
             switch (type) {
@@ -200,11 +201,14 @@ public final class ChatEventValidation {
         if (divide && min == 0 && max == 0) throw invalid(path + ".operations", "DIVIDE requires at least one non-zero operand");
     }
 
-    private static void validateLines(ConfigurationSection section, String key, String path, boolean requireNonEmpty) {
+    private static void validateLines(ConfigurationSection section, String key, String path, boolean requireNonEmpty, boolean strict) {
         if (section == null || !section.contains(key)) return;
         List<String> values = section.isString(key) ? List.of(section.getString(key, "")) : section.getStringList(key);
         if (requireNonEmpty && values.isEmpty()) throw invalid(path, "must contain at least one line");
-        for (String line : values) validateMiniMessage(path, line == null ? "" : line);
+        for (String line : values) {
+            if (strict) validateStrictMiniMessage(path, line == null ? "" : line);
+            else validateLegacyMiniMessage(path, line == null ? "" : line);
+        }
     }
 
     private static void validateChannels(ConfigurationSection section, String key, String path) {
@@ -229,7 +233,12 @@ public final class ChatEventValidation {
         if (root.contains(path) && !root.isConfigurationSection(path)) throw invalid("chat-events." + path, "must be a YAML section");
     }
 
-    private static void validateMiniMessage(String path, String value) {
+    private static void validateLegacyMiniMessage(String path, String value) {
+        try { LEGACY_MINI_MESSAGE.deserialize(value); }
+        catch (IllegalArgumentException ex) { throw invalid(path, "contains invalid MiniMessage: " + ex.getMessage()); }
+    }
+
+    private static void validateStrictMiniMessage(String path, String value) {
         try { STRICT_MINI_MESSAGE.deserialize(value); }
         catch (IllegalArgumentException ex) { throw invalid(path, "contains invalid MiniMessage: " + ex.getMessage()); }
     }
