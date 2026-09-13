@@ -70,8 +70,11 @@ class ConfigurationAndGuiTest extends PluginTestBase {
         assertNotNull(migrated.getConfigurationSection("chat-events"));
         assertNotNull(migrated.getConfigurationSection("chat-events.discord"));
         try (var files = Files.list(path.getParent())) {
-            var backup = files.filter(file -> file.getFileName().toString().startsWith("config-before-v9-")).findFirst().orElseThrow();
-            assertEquals(source, Files.readString(backup));
+            var backups = files.filter(file -> file.getFileName().toString().startsWith("config-before-v9-")).toList();
+            assertTrue(backups.stream().anyMatch(file -> {
+                try { return Files.readString(file).equals(source); }
+                catch (java.io.IOException ex) { return false; }
+            }), "the complete 2.0 source must be preserved in a v9 migration backup");
         }
     }
     @Test void schemaTwoUpgradeKeepsCustomCollectionsEmpty() throws Exception {
