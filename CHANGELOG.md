@@ -1,171 +1,68 @@
 # Changelog
 
-## 3.4.0 — enhanced Chat Events, persistent statistics and interactive Bingo
+## 3.5.0 — shared real-life Bingo mechanics correction
+
+### Changed
+
+- Replaced 3.4.0 participant-specific Bingo cards with one authoritative shared live board per run.
+- Removed the JOINING phase, explicit participant opt-in, per-player card state, click/manual marking, reconnect-card restoration and participant-only repeated draw traffic.
+- Bingo now renders a 6×6 chat display: `# | B | I | N | G | O` plus five playable rows.
+- Cards contain 25 unique traditional 75-ball values: B 1–15, I 16–30, N 31–45, G 46–60 and O 61–75.
+- Removed FREE-center behavior; the center is a normal N-column number.
+- Draws now come automatically from one shuffled server-owned `1..75` pool and each value can be called at most once.
+- Card marks are derived automatically from authoritative draw history. Called card values render as bold green bracketed cells.
+- Victory is now a first-valid-claim mechanic via `/bingo claim` or exact native public-chat `bingo`.
+- Public-chat claims remain behind the synchronous cancellable `PlexonChatEvent` boundary; PM/Discord/console/broadcast/synthetic sources cannot claim.
+- Horizontal, vertical and diagonal patterns remain supported; Full House is an optional additional pattern. The obsolete Four Corners gameplay is removed.
+- Bingo administration now includes `/bingo`, `/bingo claim`, `/bingo start`, `/bingo stop` and `/bingo status`, delegating to the existing Chat Events manager.
+- The Chat Events Bingo GUI now exposes run state/ID, draw count, last call, remaining pool, next-draw ETA, patterns, shared-board preview, reward profile and Start/Stop controls rather than participant/card controls.
 
 ### Added
 
-- Configurable multi-line Chat Event cards for start/winner/timeout/cancelled states with 0–3 blank lines before/after and configurable event-type display names.
-- Dedicated `chat-events.db` SQLite persistence for total, type, definition and immutable winner-history statistics.
-- Cache-backed `/chat events stats`, `/chat events stats <player>`, `/chat events leaderboard`, GUI statistics and database diagnostics.
-- Real `BINGO` event type with explicit JOINING/ACTIVE/WON/TIMED_OUT/CANCELLED lifecycle.
-- Server-generated 75-ball 5×5 Bingo cards, optional FREE center, unique draw pool and participant-only draw traffic.
-- Clickable Bingo cells with server-side run/participant/board/draw validation and reconnect card restoration.
-- Bingo patterns: `ROW`, `COLUMN`, `DIAGONAL`, `FOUR_CORNERS`, `FULL_HOUSE`.
-- Multi-page `/chat events` GUI: live dashboard, paginated definitions, event details, reward inspection, Bingo and statistics.
-- Schema v6 migration and fresh `type-rush` + real `bingo-classic` defaults.
-- Bundled SQLite JDBC dependency for standalone statistics storage.
+- `BingoRun`, `BingoPatternEvaluator` and explicit shared-board model components that are testable without Paper.
+- `BingoAnsiRenderer` and optional Bingo-specific Discord webhook synchronization with start/draw/win toggles.
+- Bounded asynchronous webhook transport with short timeouts and failure isolation; webhook URL is never exposed through normal logs, commands, GUI or diagnostics.
+- Dedicated `/bingo` command surface and `plexonchats.events.bingo.play` player permission.
+- Regression tests for traditional board generation, no FREE center, unique draws, all line patterns, Full House, invalid claims, simultaneous valid claims, ANSI output and shared audience behavior.
 
-### Reliability / security
+### Exact-once / reliability
 
-- Winner statistics share the established exact-run boundary; unique `run_id` persistence prevents duplicate callbacks from double-counting.
-- SQLite operations use one controlled executor and never query/write the ordinary public-chat hot path.
-- Bingo has no per-player repeating scheduler; the one Chat Events coordinator owns draw progression.
-- Bingo client clicks never provide trusted number authority: the server resolves the clicked cell from the participant's stored board and validates that it was drawn.
-- Non-participants receive no repeated Bingo number or board traffic.
-- Near-simultaneous final Bingo marks can produce only one winner and one completion side-effect claim.
-- GUI holders retain config revision protection and add page/run context so stale inventories cannot affect a newer run.
-- Dynamic event/player values remain component data and are never reparsed as trusted MiniMessage.
-- Timeout/cancel/insufficient-participant paths create no reward and no win statistic.
+- Bingo winner acceptance uses an atomic `ACTIVE → WON` transition.
+- One completion guard owns reward execution, persistent statistics and winner publication, preventing near-simultaneous claims from producing duplicate winners.
+- Timeout, cancellation, shutdown and draw-pool exhaustion do not issue rewards or win statistics.
+- Bingo uses the existing Chat Event reward profiles and `chat-events.db`; no duplicate reward engine/database is introduced.
+- No per-player repeating schedulers or per-player board state exist in the 3.5.0 model.
 
 ### Migration / compatibility
 
-- Configuration schema advances from v5 to v6 with `config-before-v6-*` backup.
-- `chat-events.events` remains administrator-owned during migration. A legacy TYPE event whose ID is `bingo` is preserved exactly and never silently reinterpreted as BINGO.
-- Existing LOCAL/GLOBAL routing, PM/reply, item display, mentions, auto-messages, DiscordSRV isolation, `PlexonChatsAPI`, synchronous cancellable `PlexonChatEvent`, transactional reload and exact-one reward semantics remain intact.
-- Paper 26.2, Java 25 and PlexonCore 2.0.4 compile boundary remain authoritative.
-- Rollback: `v3.3.0` / `8b79743c5e8f1751031b0988ff927fdc17fa93ed`.
+- Configuration schema advances from v6 to **v7** with `config-before-v7-<timestamp>.yml` backup.
+- Administrator-owned `chat-events.events` remains protected during migration.
+- Existing explicit BINGO definitions preserve identity/name/weight/cooldown/reward/minimum-online values while obsolete join/FREE/player-card/manual-mark settings are removed or ignored.
+- A non-Bingo definition whose ID is `bingo` remains its explicit type and is never silently reinterpreted.
+- Existing LOCAL/GLOBAL routing, PM/reply, item display, mentions, auto-messages, DiscordSRV normal-chat isolation, `PlexonChatsAPI`, synchronous cancellable `PlexonChatEvent`, persistent statistics and reward integrations remain unchanged.
+- Target remains Paper 26.2 / Java 25 / PlexonCore 2.0.4.
+- Rollback: `v3.4.0` / `26cdf6fcff09d0443bbea64c5ec5ae3c4c1cd3a9`.
+
+## 3.4.0 — enhanced Chat Events, persistent statistics and interactive Bingo
+
+- Added configurable multi-line Chat Event cards and persistent `chat-events.db` winner statistics.
+- Added the first real BINGO event implementation, its administration GUI and schema v6 migration.
+- Added SQLite JDBC bundling and exact-run persistence protection.
+- Historical 3.4.0 Bingo used participant-specific cards, explicit joining, optional FREE center and clickable server-validated marks; 3.5.0 intentionally supersedes those gameplay mechanics.
 
 ## 3.3.0 — configurable Chat Events
 
-### Added
-
-- Fully configurable Chat Events subsystem with independent persistent master and automatic-scheduler toggles.
-- One bounded coordinator, one active competition at a time, monotonic deadlines, weighted selection, per-event cooldowns, minimum-online/audience filters, immediate-repeat avoidance, timeout and cancellation lifecycle.
-- `TYPE`, `UNSCRAMBLE`, `MATH`, `TRIVIA`, and Unicode-safe `REVERSE` generators.
-- Deterministic answer normalization with case, trim, whitespace, Unicode-normalization, and optional diacritic controls.
-- Exact-once winner transition and exact-once reward attempt, including near-simultaneous answer regression coverage.
-- Reusable reward profiles combining Vault economy, optional PlexonKeys service grants, and controlled console commands.
-- `/chat events status|list|enable|disable|pause|resume|start|stop|preview` with permission-aware completion.
-- `plexonchats.events` and `plexonchats.events.manage`, included under `plexonchats.admin`.
-- Compact Chat Events administration GUI using the existing custom-holder/click-routing protections.
-- Chat Events status/reward-integration/failure fields in `/chat diagnostics` and concise state in `/chat status`.
-- Configuration schema v5 migration with Chat Events defaults and `config-before-v5-*` backup.
-
-### Reliability / security
-
-- Only genuine accepted native Minecraft public chat may win; command shortcuts, PMs, Discord-origin messages, broadcasts, auto-messages, console and synthetic sends cannot count.
-- `PlexonChatEvent` cancellation remains authoritative before an answer is accepted. Correct active-event answers are checked before stale duplicate-history throttling; wrong answers remain subject to normal moderation.
-- Reward integrations execute only after an exact winner exists and only on the primary thread. Partial reward failure never reopens a competition or chooses a second winner.
-- PlexonKeys is consumed through its existing Bukkit service boundary without vendoring/bundling another plugin JAR.
-- Player answers are data only: they are never parsed as trusted MiniMessage or injected into console rewards.
-- Timeout/cancel/reload/master-disable paths grant nothing; timeout still announces even when answer reveal is disabled.
-- Invalid Chat Events configuration rejects the entire reload candidate while the previous live runtime remains active.
-- Existing LOCAL/GLOBAL chat, PM/reply, item display, mentions, player preferences, GUI, auto-messages, DiscordSRV isolation, public API, synchronous `PlexonChatEvent`, and transactional reload behavior remain covered by the full suite.
-
-### Compatibility
-
-- Target remains Paper 26.2 / Java 25 / PlexonCore 2.0.4 compile boundary.
-- Vault and PlexonKeys are optional runtime integrations; their absence does not disable normal chat or Chat Events without those reward components.
-- Existing `PlexonChatsAPI` binary surface is not broken by Chat Events.
+- Added the configurable Chat Events coordinator, TYPE/UNSCRAMBLE/MATH/TRIVIA/REVERSE generators, answer normalization, reward profiles and event administration.
+- Established the exact-once winner/reward boundary and native-public-chat answer-source restrictions.
 
 ## 3.2.0 — stable repository closure
 
-- Promote the accepted `3.2.0-rc.1` / Phase 3 source lineage to stable `3.2.0` without introducing a parallel chat route or speculative Essentials parity.
-- Preserve synchronous cancellable `PlexonChatEvent`, public `PlexonChatsAPI`, first-party `/msg` + `/reply`, GLOBAL/LOCAL ownership, DiscordSRV no-echo behavior, and PlexonCore diagnostic integration.
-- Preserve the no-per-message-scheduler chat path, cached-only LuckPerms presentation, safe MiniMessage component boundaries, transactional runtime reload rollback, and one shared auto-message scheduler.
-- Keep `/ignore` deferred for lack of production dependency evidence and keep AFK ownership outside PlexonChats.
-- Generalize Build CI around the Maven project version instead of hard-coded RC artifact names.
-- Replace RC-tag publication with one exact-`main` stable release workflow.
-- Require a non-empty all-green test suite, Java 25/class major 69, Paper 26.2 metadata, required API/event/diagnostic classes, dependency isolation, checksums and provenance before stable publication.
-- Keep live PlexonCraft rollout as a separate non-blocking operational follow-up.
+- Promoted the accepted Phase 3 source lineage to stable 3.2.0, preserving synchronous cancellable `PlexonChatEvent`, public API compatibility, PM/reply, chat ownership and stable release provenance checks.
 
 ## 3.1.0
 
-Based on the verified production `3.0-Release` commit `4bff64e1691e79f0199baace428ec4349be9400b`. The stale historical `main` branch was not used as the migration baseline.
-
-### Added
-
-- PlexonCore 1.0.0 lifecycle bridge with module ID `chats`, supported Core API range `>=1.0 <2.0`, and STARTING/READY/DEGRADED/FAILED publication.
-- Safe standalone Core bridge/factory that avoids Core API linkage when PlexonCore is absent, disabled, unavailable, or incompatible.
-- Bukkit `PlexonChatsAPI` service with immutable player-preference snapshots and controlled channel/public-chat/private-message operations.
-- `/chat diagnostics` for plugin/platform/Core/API/preferences/scheduler/item-preview/GUI/PAPI/Vault/DiscordSRV state without exposing chat content.
-- Core lifecycle regression tests covering compatibility, fallback, duplicate registration ownership, health transitions, and clean unregister.
-- Tag-driven release workflow design with pinned PlexonCore provisioning, distribution verification, and `SHA256SUMS.txt`.
-- API, PlexonCore, migration, and 3.1.0 release documentation.
-
-### Changed
-
-- Version is now 3.1.0.
-- Build/runtime target is Paper 26.2 / Java 25.
-- `plugin.yml` API metadata is aligned to Paper 26.2.
-- PlexonCore 1.0.0 is a `provided` Maven dependency and a runtime soft dependency.
-- GitHub CI/release handling is normalized for maintained `main`/release branches and tag-driven production publication.
-
-### Preserved
-
-- `com.antondev.chats` package namespace.
-- Existing commands, aliases, and permission nodes.
-- Configuration schema 3 and existing live `config.yml` compatibility.
-- `players.yml` format and ordered asynchronous persistence architecture.
-- LOCAL/GLOBAL semantics, configured local radius, shortcut prefixes, validation/cooldown/duplicate protection.
-- One authoritative public-chat route and one `PlexonChatEvent` per logical public message.
-- Existing synchronous, cancellable `PlexonChatEvent` timing/accessors/recipient mutability and PM exclusion.
-- Paper lower-priority moderation cancellation, message edits, and viewer restrictions.
-- Private-message and `/reply` behavior.
-- One auto-message scheduler with current group content/rotation/audience behavior.
-- GUI behavior and inventory protections.
-- Exact item-preview snapshots and single cleanup task.
-- MiniMessage/PlaceholderAPI/display-name/click-action security policies.
-- Vault/player-info behavior.
-- DiscordSRV as the only Minecraft→Discord chat path; global at most once, local/PM never.
-- Invalid reload behavior: rejected candidate configuration does not replace the working live configuration.
-
-### Compatibility
-
-- Target: Paper 26.2, Java 25.
-- PlexonCore 1.0.0 is optional at runtime; compatible Core produces CORE mode, otherwise PlexonChats remains standalone.
-- DiscordSRV remains optional and is not bundled.
-- No configuration or player-data reset is required from 3.0.
+- Added PlexonCore lifecycle integration, public API services, diagnostics and Java 25 / Paper 26.2 build/release normalization.
 
 ## 3.0
 
-Based on `2.0-Update` (`cefcdbe0679f75a1000d5401fb6a94fc86378e03`), not `main`.
-
-### Added
-
-- Configurable nickname hover/click/name, badge/separator interactions, and private-message formats.
-- Configurable main/admin/creator menus with permission-aware actions, 1–6 rows, custom materials/lore, and private format preview.
-- Persistent channel, mention, tip, and private-message preferences.
-- Interval-based auto-message groups with sequential/shuffled rotation, chat/action-bar/title delivery, audience filters, and manual preview/send/pause/resume controls.
-- Optional DiscordSRV 1.30.5 adapter for global chat, inbound filtered components, status reporting, and explicitly enabled announcements.
-- Join/quit/first-join customization with DEFAULT/CUSTOM/HIDDEN modes, online-count placeholders, and silent/hidden-message protection.
-- Synchronous cancellable `PlexonChatEvent` for moderation/integration of all public chat entry points.
-- Versioned config migration with backup, atomic preference/config writes, and invalid-reload protection.
-- Regression tests including the committed 2.0 config fixture and connection-message behavior; Java 25 Maven CI and release publishing with checksums.
-
-### Fixed
-
-- Public channel and item format settings were ignored by hardcoded rendering.
-- Permission, enabled-channel, and routing checks now apply consistently to ordinary chat, shortcuts, `/g`, and `/l`.
-- Native moderated message/viewer data is respected before delivery.
-- PM mentions no longer alert unrelated players; public mention alerts are limited to actual recipients.
-- GUI inventory transfer and stale-view actions are blocked; actions recheck authorization.
-- Built-in/PAPI/rank values cannot inject new MiniMessage tags or recursive placeholders.
-- Existing display-name interactions cannot override the configured nickname hover/click behavior.
-- Item preview storage has a configurable bound/expiry and uses cloned snapshots.
-- Reloads replace old scheduling/hooks without stacking timers or Discord listeners.
-
-### Changed
-
-- Release version is 3.0; configuration schema is version 3.
-- Player message formatting is permission-gated, with advanced tags disabled by default.
-- Added configurable message length, cooldown, and duplicate protection.
-- Vault and PAPI hooks refresh on reload/plugin enable/disable.
-- Generated Maven output is ignored instead of committed.
-- Supersedes the withdrawn 1.1.0 proposal; 3.0 has the correct 2.0-Update commit ancestry.
-
-### Compatibility
-
-- Build/test target: Paper 1.21.11, Java 25, DiscordSRV 1.30.5.
-- DiscordSRV is optional and disabled in the default config. Local chat and PMs are never bridged.
-- See [UPGRADING.md](docs/UPGRADING.md) for appearance changes caused by previously ignored formats taking effect.
+- Added configurable chat UI, preferences, auto-messages, optional DiscordSRV integration, connection messages, synchronous cancellable `PlexonChatEvent`, transactional configuration migration and regression coverage based on the accepted 2.0-Update lineage.

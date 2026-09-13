@@ -57,7 +57,7 @@ public record ChatEventConfig(
                 matching(defaultsSection == null ? null : defaultsSection.getConfigurationSection("matching"), Matching.standard()));
 
         Presentation presentation = presentation(root.getConfigurationSection("presentation"));
-        BingoSettings bingo = bingo(root.getConfigurationSection("bingo"), null);
+        BingoSettings bingo = bingo(root.getConfigurationSection("bingo"));
 
         Map<String, RewardProfile> rewards = new LinkedHashMap<>();
         ConfigurationSection rewardSection = root.getConfigurationSection("reward-profiles");
@@ -121,7 +121,7 @@ public record ChatEventConfig(
                         section.getInt("min-operand", 1),
                         section.getInt("max-operand", 10),
                         section.getBoolean("allow-negative-result", false),
-                        bingo(section.getConfigurationSection("bingo"), bingo)));
+                        bingo));
             }
         }
 
@@ -145,9 +145,9 @@ public record ChatEventConfig(
         messages.putIfAbsent("winner", "<green><bold>{winner}</bold></green> <gray>answered correctly in <white>{elapsed}</white>! <gray>Reward: {reward_summary}");
         messages.putIfAbsent("timed-out", "<yellow>Time's up!</yellow> <gray>The answer was <white>{answer}</white>.");
         messages.putIfAbsent("cancelled", "<gray>The current chat event was cancelled.");
-        messages.putIfAbsent("no-events", "<yellow>No eligible chat events are currently available.");
-        messages.putIfAbsent("already-active", "<yellow>A chat event is already active: <white>{event_id}</white>.");
-        messages.putIfAbsent("disabled", "<yellow>Chat Events are disabled.");
+        messages.putIfAbsent("no-events", "<yellow>No eligible chat events are currently available.</yellow>");
+        messages.putIfAbsent("already-active", "<yellow>A chat event is already active: <white>{event_id}</white>.</yellow>");
+        messages.putIfAbsent("disabled", "<yellow>Chat Events are disabled.</yellow>");
         return new ChatEventConfig(root.getBoolean("enabled", true), scheduler, defaults, presentation, bingo,
                 rewards, definitions, sounds, messages);
     }
@@ -160,36 +160,34 @@ public record ChatEventConfig(
         cards.put("timeout", lines(section, "timeout", List.of("{separator}", "<yellow><bold>CHAT EVENT ENDED</bold></yellow>", "<gray>No winner this round.</gray>", "<gray>Answer:</gray> <white>{answer}</white>", "{separator}")));
         cards.put("cancelled", lines(section, "cancelled", List.of("{separator}", "<gray><bold>CHAT EVENT CANCELLED</bold></gray>", "<gray>No reward was issued.</gray>", "{separator}")));
         EnumMap<ChatEventEngine.Type, String> typeNames = new EnumMap<>(ChatEventEngine.Type.class);
-        for (ChatEventEngine.Type type : ChatEventEngine.Type.values()) {
-            typeNames.put(type, string(section, "type-names." + type.name(), displayId(type.name())));
-        }
+        for (ChatEventEngine.Type type : ChatEventEngine.Type.values()) typeNames.put(type, string(section, "type-names." + type.name(), displayId(type.name())));
         return new Presentation(integer(section, "blank-lines-before", 1), integer(section, "blank-lines-after", 1), separator, cards, typeNames);
     }
 
-    private static BingoSettings bingo(ConfigurationSection section, BingoSettings fallback) {
-        BingoSettings base = fallback == null ? BingoSettings.defaults() : fallback;
+    private static BingoSettings bingo(ConfigurationSection section) {
+        BingoSettings base = BingoSettings.defaults();
         Set<BingoPattern> patterns = EnumSet.noneOf(BingoPattern.class);
-        List<String> configured = section == null ? List.of() : section.getStringList("win-patterns");
-        if (configured.isEmpty()) patterns.addAll(base.winPatterns());
-        else for (String value : configured) patterns.add(BingoPattern.valueOf(value.toUpperCase(Locale.ROOT)));
+        if (bool(section, "winning.horizontal", true)) patterns.add(BingoPattern.ROW);
+        if (bool(section, "winning.vertical", true)) patterns.add(BingoPattern.COLUMN);
+        if (bool(section, "winning.diagonal", true)) patterns.add(BingoPattern.DIAGONAL);
+        if (bool(section, "winning.full-house", false)) patterns.add(BingoPattern.FULL_HOUSE);
         Map<String, List<String>> messages = new LinkedHashMap<>(base.messages());
         if (section != null) {
             ConfigurationSection messageSection = section.getConfigurationSection("messages");
-            if (messageSection != null) {
-                for (String key : messageSection.getKeys(false)) messages.put(key, readLines(messageSection, key));
-            }
+            if (messageSection != null) for (String key : messageSection.getKeys(false)) messages.put(key, readLines(messageSection, key));
         }
+        BingoDiscord discord = new BingoDiscord(
+                bool(section, "discord.enabled", false),
+                string(section, "discord.webhook-url", ""),
+                string(section, "discord.username", "PlexonChats Bingo"),
+                bool(section, "discord.send-start", true),
+                bool(section, "discord.send-draws", true),
+                bool(section, "discord.send-win", true));
         return new BingoSettings(
                 bool(section, "enabled", base.enabled()),
-                integer(section, section != null && section.contains("join-seconds") ? "join-seconds" : "join.duration-seconds", base.joinSeconds()),
-                integer(section, section != null && section.contains("min-participants") ? "min-participants" : "join.min-participants", base.minParticipants()),
-                bool(section, "board.free-center", bool(section, "free-center", base.freeCenter())),
-                integer(section, section != null && section.contains("draw-interval-seconds") ? "draw-interval-seconds" : "draw.first-delay-seconds", base.firstDrawDelaySeconds()),
-                integer(section, section != null && section.contains("draw-interval-seconds") ? "draw-interval-seconds" : "draw.interval-seconds", base.drawIntervalSeconds()),
-                bool(section, "draw.redraw-board-each-draw", base.redrawBoardEachDraw()),
-                integer(section, "timeout-seconds", base.timeoutSeconds()),
-                Set.copyOf(patterns),
-                Map.copyOf(messages));
+                integer(section, "draw.first-delay-seconds", base.firstDrawDelaySeconds()),
+                integer(section, "draw.interval-seconds", base.drawIntervalSeconds()),
+                Set.copyOf(patterns), discord, Map.copyOf(messages));
     }
 
     private static Matching matching(ConfigurationSection section, Matching fallback) {
@@ -264,9 +262,8 @@ public record ChatEventConfig(
         public List<String> card(String state) { return cards.getOrDefault(state, List.of()); }
         public String typeName(ChatEventEngine.Type type) { return typeNames.getOrDefault(type, type.name()); }
     }
-    public record BingoSettings(boolean enabled, int joinSeconds, int minParticipants, boolean freeCenter,
-                                int firstDrawDelaySeconds, int drawIntervalSeconds, boolean redrawBoardEachDraw,
-                                int timeoutSeconds, Set<BingoPattern> winPatterns, Map<String, List<String>> messages) {
+    public record BingoSettings(boolean enabled, int firstDrawDelaySeconds, int drawIntervalSeconds,
+                                Set<BingoPattern> winPatterns, BingoDiscord discord, Map<String, List<String>> messages) {
         public BingoSettings {
             winPatterns = Set.copyOf(winPatterns);
             Map<String, List<String>> copy = new LinkedHashMap<>();
@@ -275,16 +272,17 @@ public record ChatEventConfig(
         }
         public List<String> message(String key) { return messages.getOrDefault(key, List.of()); }
         public static BingoSettings defaults() {
-            return new BingoSettings(true, 15, 2, true, 5, 5, false, 300,
+            return new BingoSettings(true, 5, 5,
                     Set.of(BingoPattern.ROW, BingoPattern.COLUMN, BingoPattern.DIAGONAL),
+                    new BingoDiscord(false, "", "PlexonChats Bingo", true, true, true),
                     Map.of(
-                            "joined", List.of("<green>You joined this Bingo round.</green>", "<gray>Your card is shown below.</gray>"),
-                            "draw", List.of("<gold>[BINGO]</gold> <gray>Draw</gray> <yellow>#{draw_count}</yellow><gray>:</gray> <white>{drawn_number}</white> <dark_gray>•</dark_gray> {open_card_button}"),
-                            "marked", List.of("<gold>[BINGO]</gold> <green>Marked {drawn_number}.</green>"),
-                            "invalid-mark", List.of("<gold>[BINGO]</gold> <red>That cell cannot be marked yet.</red>"),
-                            "not-participant", List.of("<red>You are not participating in this Bingo round.</red>")));
+                            "start", List.of("<gold><bold>BINGO</bold></gold> <gray>Watch the shared board and claim the first completed pattern.</gray>", "<gray>Use <white>/bingo claim</white> or type <white>bingo</white> in public chat.</gray>"),
+                            "draw", List.of("<gold>[BINGO]</gold> <gray>Call</gray> <yellow>#{draw_count}</yellow><gray>:</gray> <white>{drawn_number}</white>"),
+                            "invalid-claim", List.of("<yellow>[BINGO] No enabled winning pattern is complete yet.</yellow>")));
         }
     }
+    public record BingoDiscord(boolean enabled, String webhookUrl, String username,
+                               boolean sendStart, boolean sendDraws, boolean sendWin) { }
     public record Matching(boolean caseSensitive, boolean trim, boolean collapseWhitespace, Normalizer.Form normalization,
                            boolean ignoreDiacritics) {
         public static Matching standard() { return new Matching(false, true, true, Normalizer.Form.NFKC, false); }

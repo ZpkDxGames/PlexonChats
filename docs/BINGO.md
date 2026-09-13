@@ -1,141 +1,207 @@
-# PlexonChats Bingo
+# PlexonChats Bingo — 3.5.0
 
-PlexonChats 3.4.0 includes a real interactive `BINGO` Chat Event engine. It is separate from the ordinary TYPE, UNSCRAMBLE, MATH, TRIVIA and REVERSE answer generators.
+PlexonChats 3.5.0 replaces the 3.4.0 participant-card implementation with one server-authoritative shared Bingo board per active `BINGO` Chat Event.
 
-## Lifecycle
+## Authoritative model
 
-A Bingo run occupies the one global Chat Events slot for its complete lifecycle:
+There is exactly one board and one draw history for the run. Players do not join, receive private cards, click cells, restore cards after reconnect, or manually mark anything.
 
-```text
-JOINING -> ACTIVE -> WON / TIMED_OUT / CANCELLED
-```
-
-The server sends one general join invitation. Only players who explicitly join the exact active run become participants. Duplicate joins are harmless; joins after the deadline or from ineligible players are rejected. Players who do nothing are not enrolled.
-
-If the join window closes below `min-participants`, the run is cancelled with no reward and no win statistic.
-
-## 75-ball boards
-
-The stable implementation uses traditional 75-ball Bingo:
+Lifecycle:
 
 ```text
-B =  1-15
-I = 16-30
-N = 31-45
-G = 46-60
-O = 61-75
+IDLE
+  ↓
+STARTING
+  ↓
+ACTIVE
+  ↓
+WON / TIMED_OUT / CANCELLED
 ```
 
-Each participant receives one unique server-generated 5x5 board. Values are unique on the board and stay unchanged for the entire run. With `free-center: true`, the center cell is FREE and pre-marked.
+All players who satisfy the event's normal eligibility rules may view the board and submit a claim while the run is `ACTIVE`.
 
-A reconnecting participant receives the same existing board while the run remains active. Reconnecting does not create another participant or another card.
+## Board
 
-## Participant-only traffic
-
-The general server audience may receive the initial join invitation and the final winner/cancellation result. Repeated draw messages and board rendering are sent only to joined participants.
-
-By default, a full card is shown on join, after a successful mark, when `/chat events bingo card` is used, and after reconnect. Draws use a compact one-line message. Set `redraw-board-each-draw: true` only if the extra chat volume is acceptable.
-
-## Clicking cells
-
-When a drawn board cell is clickable, its action submits only the active run ID and board cell index. Those values are requests, not authority.
-
-The server verifies that:
-
-- the current active event is still Bingo;
-- the run ID is current;
-- the player joined that run;
-- the board belongs to that player;
-- the cell exists on that server-owned board;
-- the server-resolved number has already been drawn;
-- the cell is not already marked.
-
-A player cannot supply a different raw number to force a mark. Old run actions become stale automatically.
-
-## Win patterns
-
-Supported patterns are:
+The canonical Minecraft surface is a 6 × 6 display including the header:
 
 ```text
-ROW
-COLUMN
-DIAGONAL
-FOUR_CORNERS
-FULL_HOUSE
+# |  B |  I |  N |  G |  O
+1 | .. | .. | .. | .. | ..
+2 | .. | .. | .. | .. | ..
+3 | .. | .. | .. | .. | ..
+4 | .. | .. | .. | .. | ..
+5 | .. | .. | .. | .. | ..
 ```
 
-The first valid configured pattern detected after a successful mark atomically changes the run to `WON`. The same completion boundary allows exactly one reward attempt, one statistics record and one winner publication.
+The playable card has 25 unique values. Each column contains five values from its traditional range:
 
-## Commands
+- B: `1–15`
+- I: `16–30`
+- N: `31–45`
+- G: `46–60`
+- O: `61–75`
 
-Player commands:
+The row-3 N cell is a normal random value from `31–45`. There is no FREE tile.
 
-```text
-/chat events bingo join <run-id>
-/chat events bingo card
-```
+Unmarked cells are gray/white. A called card value is rendered as a bold green bracketed value such as `[07]`. The winning cells may use a distinct final highlight after the winner has been accepted.
 
-The clickable board uses an internal `mark` command that is intentionally omitted from normal help. It grants no administrative capability and is fully revalidated server-side.
+## Draw engine
 
-Staff commands:
+At run creation PlexonChats creates and shuffles one server-owned `1..75` pool. Each number can be called at most once. The run retains the ordered draw history, remaining pool, last call, next-draw deadline, start time and terminal state.
 
-```text
-/chat events bingo status
-/chat events bingo participants
-```
-
-## Permissions
-
-```text
-plexonchats.events             default: true
-plexonchats.events.bingo.play  default: true
-plexonchats.events.manage      default: op
-```
-
-## Configuration
-
-Global defaults live under `chat-events.bingo`:
+Default timing:
 
 ```yaml
 chat-events:
   bingo:
-    enabled: true
-    join:
-      duration-seconds: 15
-      min-participants: 2
-    board:
-      variant: BINGO_75
-      free-center: true
     draw:
       first-delay-seconds: 5
       interval-seconds: 5
-      redraw-board-each-draw: false
-    timeout-seconds: 300
-    win-patterns: [ROW, COLUMN, DIAGONAL]
 ```
 
-A BINGO definition can override clean per-event values under its own `bingo:` section:
+`interval-seconds` must be `1..300`; the first delay accepts `0..300`.
+
+The existing Chat Events coordinator advances Bingo. There is no independent global timer and no per-player scheduler.
+
+On each call PlexonChats:
+
+1. removes exactly one value from the remaining pool;
+2. appends it to authoritative draw history;
+3. automatically derives all marked cells from that history;
+4. announces the called value;
+5. broadcasts the refreshed shared board to currently eligible players;
+6. optionally queues the Discord ANSI update.
+
+A called number that is not one of the card's 25 values remains a valid call but marks no cell.
+
+## Viewing the board
+
+```text
+/bingo
+```
+
+When a Bingo run is active, `/bingo` privately renders the same authoritative board and includes the last call, draw count, enabled patterns, next-call information and a claim reminder. No GUI is required to play.
+
+## Claiming
+
+Players may claim using:
+
+```text
+/bingo claim
+```
+
+or by typing the exact word:
+
+```text
+bingo
+```
+
+in accepted native Minecraft public chat.
+
+The public-chat form enters Bingo validation only through PlexonChats' normal native public-chat route after the synchronous cancellable `PlexonChatEvent` boundary. A cancelled chat message cannot win. Console, Discord-origin messages, PMs, `/reply`, auto-messages, connection messages, broadcasts and synthetic/plugin messages cannot claim.
+
+A claim never proves victory by itself. The server checks:
+
+1. an active Bingo run exists;
+2. the player is currently eligible;
+3. the run is still `ACTIVE`;
+4. an enabled winning pattern is complete in authoritative draw history;
+5. the `ACTIVE → WON` transition can still be atomically acquired.
+
+Only the first successful atomic claim is the winner. Near-simultaneous claims cannot produce two winners.
+
+Invalid claims leave the event active and produce only concise feedback to the claimant.
+
+## Winning patterns
 
 ```yaml
 chat-events:
-  events:
-    bingo-classic:
-      enabled: true
-      name: "Classic Bingo"
-      type: BINGO
-      weight: 5
-      cooldown-seconds: 3600
-      reward-profile: epic
-      min-online: 3
-      bingo:
-        join-seconds: 15
-        min-participants: 2
-        timeout-seconds: 300
-        win-patterns: [ROW, COLUMN, DIAGONAL]
+  bingo:
+    winning:
+      horizontal: true
+      vertical: true
+      diagonal: true
+      full-house: false
 ```
 
-## Legacy `bingo` event IDs
+- **Horizontal:** any one of the five rows has all five values called.
+- **Vertical:** any B/I/N/G/O column has all five values called.
+- **Diagonal:** either full five-cell diagonal has all values called.
+- **Full House:** when enabled, all 25 card values must be called.
 
-PlexonChats 3.3.0 used `bingo` as the ID of a bundled TYPE example. Event IDs are administrator-owned identifiers; the stored `type` is authoritative. A v5 event named `bingo` remains exactly that event after migration and is never silently converted to `BINGO`.
+Full House is an additional allowed pattern; it does not disable normal line wins.
 
-Fresh v6 installations instead use `type-rush` for the TYPE example and `bingo-classic` for the real Bingo engine.
+## Exact-once completion
+
+Once a valid claimant acquires `ACTIVE → WON`, further draws stop immediately. One exact-once completion gate owns:
+
+- final board/winning-pattern presentation;
+- one global winner announcement;
+- one reward-profile execution;
+- one `chat-events.db` winner record keyed by run ID;
+- run closure.
+
+Bingo uses the existing Chat Event reward profiles and statistics database. It does not have a second reward or persistence engine.
+
+Timeout, administrator cancellation, plugin shutdown, Chat Events disable/reload, or draw-pool exhaustion produce no reward and no winner statistic.
+
+## Commands and permissions
+
+```text
+/bingo
+/bingo claim
+/bingo start
+/bingo stop
+/bingo status
+```
+
+- `plexonchats.events.bingo.play` — view/claim the live board.
+- `plexonchats.events.manage` — start/stop/status administration.
+
+Existing `/chat events ...` routes remain valid. `/chat events bingo board|claim|start|stop|status` delegates to the same manager; there is no competing Bingo management system.
+
+## Discord webhook synchronization
+
+Optional Bingo-only webhook configuration:
+
+```yaml
+chat-events:
+  bingo:
+    discord:
+      enabled: false
+      webhook-url: ""
+      username: "PlexonChats Bingo"
+      send-start: true
+      send-draws: true
+      send-win: true
+```
+
+Discord receives a monospaced fenced `ansi` board. Called card cells use ANSI bold green styling. Minecraft MiniMessage/legacy color strings are never assumed to render on Discord.
+
+Webhook I/O is submitted through a bounded asynchronous transport with short timeouts. HTTP callbacks never mutate gameplay state. Delivery failure cannot cancel draws/wins, duplicate rewards, block the Paper main thread or stall the coordinator.
+
+The webhook URL is secret configuration. It is not printed by diagnostics, status commands, GUI pages, player errors or normal logs.
+
+## Configuration migration
+
+3.5.0 advances configuration schema from v6 to v7. Before an upgraded config is written, PlexonChats creates:
+
+```text
+config-before-v7-<timestamp>.yml
+```
+
+Migration preserves administrator-owned `chat-events.events`. For explicit `type: BINGO` definitions it preserves identity/name/weight/cooldown/reward/minimum-online while converting the gameplay to shared-board defaults. A legacy nested Bingo timeout becomes event `duration-seconds` when no duration was already supplied.
+
+Obsolete active mechanics are removed/ignored, including join duration/minimum participants, participant cards, FREE center, click/manual marking and participant-only traffic.
+
+A non-Bingo event whose ID happens to be `bingo` is not reinterpreted; its explicit `type` remains authoritative.
+
+## Runtime acceptance follow-up
+
+After GitHub source/release closure, production PlexonCraft validation should verify startup, `/bingo start`, the 6×6 board/header, normal-number center, automatic green marking, shared `/bingo` view, unique draws, false-claim rejection, first-valid-claim winner, exact-once reward/statistics, scheduled selection, Discord ANSI rendering when enabled, and no regression to normal chat/PM/other events/DiscordSRV.
+
+If no real host evidence was collected during release engineering, provenance remains:
+
+```text
+runtime_deployment=FOLLOW_UP_NON_BLOCKING
+```

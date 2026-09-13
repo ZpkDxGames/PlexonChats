@@ -1,10 +1,10 @@
 # PlexonChats
 
-PlexonChats **3.4.0** is the stable Plexon communication plugin for Paper 26.2 / Java 25. It owns LOCAL/GLOBAL public chat, private messages, safe MiniMessage presentation, GUI/preferences, scheduled messages, persistent Chat Events, interactive Bingo, diagnostics, and optional DiscordSRV bridging.
+PlexonChats **3.5.0** is the stable Plexon communication plugin for Paper 26.2 / Java 25. It owns LOCAL/GLOBAL public chat, private messages, safe MiniMessage presentation, GUI/preferences, scheduled messages, persistent Chat Events, shared claim-based Bingo, diagnostics, and optional DiscordSRV bridging.
 
-## 3.4.0 — Enhanced Chat Events
+## Chat Events
 
-Chat Events retain the accepted 3.3.0 architecture: one bounded coordinator, at most one active run, one exact winner, and rewards only after the validated winner boundary.
+Chat Events retain the accepted exact-winner architecture: one bounded coordinator, at most one globally active run, and rewards/statistics only after the validated winner boundary.
 
 Built-in event types:
 
@@ -13,49 +13,42 @@ Built-in event types:
 - `MATH` — bounded integer ADD/SUBTRACT/MULTIPLY/exact DIVIDE rounds;
 - `TRIVIA` — administrator-authored questions with accepted aliases;
 - `REVERSE` — reverse a configured value using Unicode code points;
-- `BINGO` — opt-in 75-ball Bingo with participant-specific clickable cards.
+- `BINGO` — one shared 75-ball board with automatic calls/marks and a first-valid-claim winner.
 
 Fresh installations provide `type-rush`, `unscramble`, `math-normal`, `math-hard`, `trivia`, `reverse`, and `bingo-classic`. Existing administrator-owned IDs are preserved during migration.
 
-### Event cards
+Event start, winner, timeout and cancellation output uses configurable multi-line Adventure cards under `chat-events.presentation`. Player/provider values are inserted as Components rather than reparsed as MiniMessage source.
 
-Event start, winner, timeout and cancellation output uses configurable multi-line Adventure cards under `chat-events.presentation`. Blank lines before/after the card are configurable from 0–3, making events visibly distinct from ordinary chat history without altering chat routing.
-
-Dynamic values such as player names are inserted as Components rather than reparsed as MiniMessage source.
-
-### Persistent wins
-
-PlexonChats stores Chat Event wins in:
+Persistent wins are stored in:
 
 ```text
 plugins/PlexonChats/chat-events.db
 ```
 
-The SQLite schema tracks total wins, per-type wins, per-definition wins and winner history. `run_id` is unique, giving persistence-level duplicate protection. Reads/writes stay off the ordinary chat hot path through one controlled database executor and cache-backed command/GUI reads.
+The SQLite schema tracks total wins, per-type wins, per-definition wins and winner history. `run_id` remains unique, so duplicate completion callbacks cannot create duplicate persistent wins.
 
-Commands:
+## Bingo 3.5.0
 
-```text
-/chat events stats
-/chat events stats <player>
-/chat events leaderboard
-```
+Bingo is a real `BINGO` event engine and occupies the same single global Chat Events slot as other event types. There is no participant join phase and no per-player card state.
 
-See [Chat Event Statistics](docs/CHAT-EVENT-STATS.md).
-
-## Interactive Bingo
-
-Bingo is a real event engine, not a TYPE event named `bingo`.
-
-A Bingo run uses:
+Lifecycle:
 
 ```text
-JOINING -> ACTIVE -> WON / TIMED_OUT / CANCELLED
+IDLE -> STARTING -> ACTIVE -> WON / TIMED_OUT / CANCELLED
 ```
 
-The server announces one clickable join invitation. Players must explicitly join the exact run. Only participants receive their board, number draws, mark feedback and progress traffic; non-participants are not flooded with repeated numbers.
+Each active Bingo run owns exactly one shared traditional 75-ball card. The chat display is six columns by six rows including the header:
 
-Each participant receives one server-owned 5×5 75-ball board:
+```text
+# |  B |  I |  N |  G |  O
+1 | .. | .. | .. | .. | ..
+2 | .. | .. | .. | .. | ..
+3 | .. | .. | .. | .. | ..
+4 | .. | .. | .. | .. | ..
+5 | .. | .. | .. | .. | ..
+```
+
+The 25 playable values use traditional ranges:
 
 ```text
 B =  1-15
@@ -65,15 +58,29 @@ G = 46-60
 O = 61-75
 ```
 
-The center can be FREE. Drawn cells are clickable, but the client never has authority over marks: the server validates the active run, participant, board cell, server-side number and draw history. Supported win patterns are `ROW`, `COLUMN`, `DIAGONAL`, `FOUR_CORNERS`, and `FULL_HOUSE`.
+The center is a normal randomized N-column number. There is **no FREE tile**.
 
-The first valid final mark atomically closes the run. Rewards, persistent statistics and winner publication are each guarded by the same exact-once completion boundary.
+The server shuffles one `1..75` draw pool and calls each number at most once. If a called number exists on the shared card, its cell is marked automatically from the authoritative draw history. Marked cells render as bold green bracketed values such as `[07]`. Players never send mark/cell state.
+
+Enabled winning patterns are horizontal, vertical, diagonal, and optionally Full House. A player claims with either:
+
+```text
+/bingo claim
+```
+
+or the exact word `bingo` in accepted native Minecraft public chat. The public-chat route is evaluated only after the existing synchronous cancellable `PlexonChatEvent` boundary. Console, PM/reply, Discord-origin, broadcasts, auto-messages and synthetic/plugin messages cannot win.
+
+The server independently evaluates the shared board against draw history. The first valid claim atomically transitions the run from `ACTIVE` to `WON`; all later claims lose. One exact-once completion gate then owns winner publication, reward execution and persistent statistics.
+
+`/bingo` privately displays the same authoritative live board, last call, draw count, active patterns and claim reminder. `/bingo start|stop|status` delegates to the same Chat Events manager used by `/chat events`.
+
+Optional Bingo-specific Discord synchronization uses a configured webhook and an ANSI monospaced board. Webhook requests are asynchronous, bounded and isolated from gameplay; the webhook URL is never exposed through commands, GUI or diagnostics. Discord-origin messages still cannot claim a win.
 
 See [Bingo](docs/BINGO.md).
 
 ## Answer source and moderation
 
-For non-Bingo answer events, only accepted native Minecraft public chat can win. Console, commands, `/g`/`/l` shortcut sends, `/msg`/`/reply`, Discord-origin messages, auto-messages, connection messages, broadcasts and synthetic/plugin sends are not valid submissions.
+For ordinary answer events, only accepted native Minecraft public chat can win. Console, commands, `/g`/`/l` shortcut sends, `/msg`/`/reply`, Discord-origin messages, auto-messages, connection messages, broadcasts and synthetic/plugin sends are not valid submissions.
 
 The synchronous cancellable `PlexonChatEvent` remains authoritative before answer acceptance. Player-controlled raw chat is never trusted MiniMessage and is never expanded into reward commands.
 
@@ -85,30 +92,13 @@ Reusable reward profiles may combine:
 - optional PlexonKeys tiers (`BASIC`, `RARE`, `EPIC`, `LEGENDARY`);
 - trusted console commands with controlled placeholders.
 
-Missing optional integrations fail only their reward component. A reward failure does not reopen the event or choose another winner.
+Bingo reuses this existing reward engine. Missing optional integrations fail only their reward component; a reward failure does not reopen the event or select another winner.
 
 ## Administration GUI
 
-`/chat events` opens the Chat Events dashboard for players; console receives the text status surface.
+`/chat events` opens the Chat Events dashboard for players; console receives the text status surface. The holder-routed GUI includes live master/scheduler state, the event browser, event details, reward profiles, statistics, and a Bingo page.
 
-The holder-routed GUI includes:
-
-- dashboard with live master/scheduler/active-event/integration/database state;
-- paginated event browser;
-- event details and manual preview/start controls;
-- reward profile inspection;
-- Bingo status/card access;
-- statistics and leaderboard information.
-
-Event browser interactions:
-
-```text
-LEFT CLICK  -> details
-RIGHT CLICK -> preview
-SHIFT+LEFT  -> manual start
-```
-
-The existing secure `InventoryHolder` routing remains in place. GUI holders carry the configuration revision plus selected-page/run context so stale inventories cannot mutate a newer runtime generation or stop a different active run.
+The 3.5.0 Bingo page shows run state/ID, last draw, draw count, remaining pool, next-draw ETA, active winning patterns, a shared board preview, reward profile, Start/Stop controls and only the Discord webhook enabled/disabled state. It does not contain joining, participant lists, per-player cards, click marking or FREE-center controls.
 
 ## Stable communication boundary
 
@@ -116,8 +106,8 @@ The existing secure `InventoryHolder` routing remains in place. GUI holders carr
 - **No per-message scheduler handoff:** native public chat remains on the accepted Paper event path.
 - **Safe MiniMessage boundary:** administrator templates may use MiniMessage; player/provider values are component data.
 - **Transactional configuration:** invalid candidates do not replace the known-good runtime generation.
-- **Bounded tasks:** one auto-message scheduler, one Chat Events coordinator, one database executor; no per-player Bingo repeating task.
-- **DiscordSRV isolation:** approved GLOBAL chat only; Discord-origin traffic never counts as a Chat Event answer.
+- **Bounded tasks:** one auto-message scheduler, one Chat Events coordinator and one database executor; Bingo has no per-player repeating scheduler.
+- **DiscordSRV isolation:** approved GLOBAL chat only; Discord-origin traffic never counts as a Chat Event answer or Bingo claim.
 - **Public API compatibility:** existing `PlexonChatsAPI` and synchronous cancellable `PlexonChatEvent` remain compatible.
 
 AFK remains PlexonUtility-owned and is not duplicated in Chats.
@@ -143,53 +133,36 @@ SQLite JDBC is bundled for standalone `chat-events.db` operation. Paper/Bukkit/A
 | `/g [message]`, `/l [message]` | Select/send GLOBAL or LOCAL chat | `plexonchats.global`, `plexonchats.local` |
 | `/msg <player> <message>`, `/reply <message>` | Private messages | `plexonchats.tell` |
 | `/announce <message>` | Server-wide announcement | `plexonchats.announce` |
-| `/chat admin`, `/chat status` | Administration/state | `plexonchats.manage` |
-| `/chat diagnostics` | Runtime/integration/DB/Bingo diagnostics | `plexonchats.manage` |
+| `/chat admin`, `/chat status`, `/chat diagnostics` | Administration/runtime state | `plexonchats.manage` |
 | `/chat reload` | Transactional config validation/reload | `plexonchats.reload` |
 | `/chat automessages ...` | Scheduled-message administration | `plexonchats.automessages` |
 | `/chat events` | Event dashboard / console status | `plexonchats.events` |
 | `/chat events list` | List definitions and cooldowns | `plexonchats.events` |
 | `/chat events stats [player]` | Win statistics | self: `plexonchats.events`; others: `plexonchats.events.stats.others` |
 | `/chat events leaderboard` | Cached top winners | `plexonchats.events` |
-| `/chat events bingo card` | Reopen own active Bingo card | `plexonchats.events.bingo.play` |
-| `/chat events bingo join <run-id>` | Join active Bingo | `plexonchats.events.bingo.play` |
-| `/chat events enable\|disable` | Persistent master state | `plexonchats.events.manage` |
-| `/chat events pause\|resume` | Runtime automatic scheduler | `plexonchats.events.manage` |
-| `/chat events start <id\|random>` | Manual start | `plexonchats.events.manage` |
-| `/chat events stop` | Cancel active event without reward/stat | `plexonchats.events.manage` |
-| `/chat events preview <id>` | Private event preview | `plexonchats.events.manage` |
-| `/chat events bingo status` | Bingo runtime status | `plexonchats.events.manage` |
-| `/chat events bingo participants` | Joined participant list | `plexonchats.events.manage` |
+| `/chat events enable\|disable\|pause\|resume\|start\|stop\|preview` | Event administration | `plexonchats.events.manage` |
+| `/bingo` | View the authoritative active board | `plexonchats.events.bingo.play` |
+| `/bingo claim` | Submit a server-validated Bingo claim | `plexonchats.events.bingo.play` |
+| `/bingo start\|stop\|status` | Bingo administration through Chat Events | `plexonchats.events.manage` |
+| `/chat events bingo board\|claim\|start\|stop\|status` | Compatible Chat Events Bingo routes | matching play/manage permission |
 
 ## Configuration and migration
 
-Configuration schema is **v6**. Upgrading a valid older configuration creates:
+Configuration schema is **v7**. Upgrading a valid older configuration creates:
 
 ```text
-config-before-v6-<timestamp>.yml
+config-before-v7-<timestamp>.yml
 ```
 
-The migration adds missing 3.4 options without silently replacing administrator-owned Chat Event definitions. In particular, a v5 TYPE event whose ID is literally `bingo` remains a TYPE event; IDs are opaque and the stored `type` field is authoritative.
+The v6 → v7 migration preserves administrator-owned `chat-events.events`, including custom IDs, names, weights, cooldowns, minimum-online values and reward-profile references. Existing `type: BINGO` definitions are migrated to the shared-board model. Obsolete join, participant-card, manual-mark and FREE-center settings are removed/ignored.
 
-Fresh v6 defaults use `type-rush` for the TYPE example and `bingo-classic` for the real BINGO event.
-
-A successful reload safely replaces runtime coordinators after validation. A failed candidate leaves the previous configuration and active event untouched.
+A non-Bingo event whose ID is literally `bingo` remains whatever its explicit `type` says; IDs are opaque and never reinterpreted.
 
 See [Configuration](docs/CONFIGURATION.md), [Chat Events](docs/CHAT-EVENTS.md), and [Upgrading](docs/UPGRADING.md).
 
 ## Diagnostics
 
-`/chat diagnostics` reports the established chat/integration state plus:
-
-- Chat Events master/scheduler/task state;
-- active event/run/remaining time;
-- last result/winner;
-- Vault and PlexonKeys reward readiness;
-- SQLite state/file/schema/executor/pending writes/last success/failure;
-- total recorded winners and cached player statistics;
-- Bingo phase/participants/draw count/last draw/remaining pool.
-
-Internal Bingo action tokens/nonces are never exposed.
+`/chat diagnostics` reports established chat/integration state plus Chat Events coordinator/database state and Bingo phase, draw count, last draw, remaining pool, next draw, enabled patterns and webhook enabled/disabled state. The webhook URL is never emitted.
 
 ## Build and release
 
@@ -199,16 +172,16 @@ With Maven 3.9+ and JDK 25:
 mvn --batch-mode --no-transfer-progress clean verify
 ```
 
-The stable artifact is `PlexonChats-3.4.0.jar`. Build/release verification checks Java class major 69, Paper 26.2 metadata, required Chat Event/Bingo/statistics/SQLite classes, provided-API isolation, checksums and provenance.
+The stable artifact is `PlexonChats-3.5.0.jar`. Build/release verification checks Java class major 69, Paper 26.2 metadata, required Chat Event/Bingo/statistics/SQLite classes, provided-API isolation, checksums and provenance.
 
 Stable publication rebuilds the exact final `main` source through `release/stable` and publishes:
 
-- `PlexonChats-3.4.0.jar`
+- `PlexonChats-3.5.0.jar`
 - `SHA256SUMS.txt`
 - `TEST_SUMMARY.txt`
 - `PROVENANCE.txt`
 
-Rollback baseline: `v3.3.0` / `8b79743c5e8f1751031b0988ff927fdc17fa93ed`.
+Rollback baseline: `v3.4.0` / `26cdf6fcff09d0443bbea64c5ec5ae3c4c1cd3a9`.
 
 Live PlexonCraft deployment/smoke testing remains a separate operational follow-up when direct host evidence is unavailable; GitHub source/release closure does not fabricate an in-game PASS.
 
