@@ -40,11 +40,11 @@ class ConfigurationAndGuiTest extends PluginTestBase {
         assertEquals("!!", plugin.getConfigManager().getGlobalShortcutPrefix());
         assertEquals("<gold>LEGACY {player}: {message}", plugin.getConfigManager().getGlobalFormat());
         try (var files = Files.list(file.getParent())) {
-            var backups = files.filter(path -> path.getFileName().toString().startsWith("config-before-v9-")).toList();
+            var backups = files.filter(path -> path.getFileName().toString().startsWith("config-before-v10-")).toList();
             assertTrue(backups.stream().anyMatch(path -> {
                 try { return Files.readString(path).equals(legacy); }
                 catch (java.io.IOException ex) { return false; }
-            }), "the exact administrator configuration must be backed up before v9 migration");
+            }), "the exact administrator configuration must be backed up before v10 migration");
         }
     }
     @Test void completeTwoPointZeroConfigurationMigratesWithoutLosingAnyValue() throws Exception {
@@ -64,33 +64,35 @@ class ConfigurationAndGuiTest extends PluginTestBase {
                 assertEquals(value, migrated.get(key), "Preserve 2.0 setting: " + key);
             }
         });
-        assertEquals(9, migrated.getInt("config-version"));
+        assertEquals(10, migrated.getInt("config-version"));
         assertEquals("DEFAULT", migrated.getString("connection-messages.join.mode"));
         assertNotNull(migrated.getConfigurationSection("integrations.discordsrv"));
         assertNotNull(migrated.getConfigurationSection("chat-events"));
         assertNotNull(migrated.getConfigurationSection("chat-events.discord"));
+        assertFalse(migrated.getConfigurationSection("chat-events.events").getKeys(false).isEmpty(), "v10 repairs the historical empty Chat Events library");
         try (var files = Files.list(path.getParent())) {
-            var backups = files.filter(file -> file.getFileName().toString().startsWith("config-before-v9-")).toList();
+            var backups = files.filter(file -> file.getFileName().toString().startsWith("config-before-v10-")).toList();
             assertTrue(backups.stream().anyMatch(file -> {
                 try { return Files.readString(file).equals(source); }
                 catch (java.io.IOException ex) { return false; }
-            }), "the complete 2.0 source must be preserved in a v9 migration backup");
+            }), "the complete 2.0 source must be preserved in a v10 migration backup");
         }
     }
-    @Test void schemaTwoUpgradeKeepsCustomCollectionsEmpty() throws Exception {
+    @Test void schemaTwoUpgradeKeepsUnrelatedCustomCollectionsEmptyButRepairsChatEvents() throws Exception {
         var path = plugin.getDataFolder().toPath().resolve("config.yml");
         Files.writeString(path, "config-version: 2\ngui:\n  items: {}\nauto-messages:\n  groups: {}\n");
         assertTrue(plugin.reloadPlugin());
         var migrated = YamlConfiguration.loadConfiguration(path.toFile());
-        assertEquals(9, migrated.getInt("config-version"));
+        assertEquals(10, migrated.getInt("config-version"));
         assertTrue(migrated.getConfigurationSection("gui.items").getKeys(false).isEmpty());
         assertTrue(migrated.getConfigurationSection("auto-messages.groups").getKeys(false).isEmpty());
         assertNotNull(migrated.getConfigurationSection("chat-events"));
         assertNotNull(migrated.getConfigurationSection("chat-events.discord"));
+        assertTrue(migrated.isConfigurationSection("chat-events.events.bingo-classic"));
     }
     @Test void releaseMetadataMatchesChatEventsCandidate() {
-        assertEquals("3.6.1", plugin.getPluginMeta().getVersion());
-        assertEquals(9, com.antondev.chats.config.ConfigUpgrader.VERSION);
+        assertEquals("3.6.2", plugin.getPluginMeta().getVersion());
+        assertEquals(10, com.antondev.chats.config.ConfigUpgrader.VERSION);
     }
     @Test void rowsAndCustomButtonPositionsAreHonored() throws Exception {
         var player = player("Viewer");

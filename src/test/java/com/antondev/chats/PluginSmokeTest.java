@@ -20,7 +20,7 @@ class PluginSmokeTest {
         assertEquals(2, plugin.getAutoMessages().groupNames().size());
         assertTrue(plugin.getChatEvents().enabled());
         assertTrue(plugin.getChatEvents().taskActive());
-        assertEquals("3.6.1", plugin.getPluginMeta().getVersion());
+        assertEquals("3.6.2", plugin.getPluginMeta().getVersion());
         assertEquals("STANDALONE", plugin.getCoreBridge().mode());
         var registration = server.getServicesManager().getRegistration(PlexonChatsAPI.class);
         assertNotNull(registration);

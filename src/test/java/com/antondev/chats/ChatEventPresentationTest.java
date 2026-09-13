@@ -36,8 +36,10 @@ class ChatEventPresentationTest extends PluginTestBase {
         List<Component> start = renderer.render(config, "start", values);
         String startText = joined(start);
         assertTrue(startText.contains("✦ Type Rush"));
+        assertTrue(startText.contains("HOW TO PLAY"));
         assertTrue(startText.contains("◆ $500"));
         assertTrue(startText.contains("⏱ 30s"));
+        assertTrue(startText.contains("first correct answer wins"));
         assertFalse(startText.contains("CHAT EVENT"));
         assertFalse(startText.contains("Reward:"));
         assertFalse(startText.contains("Time:"));
@@ -47,16 +49,18 @@ class ChatEventPresentationTest extends PluginTestBase {
         String winnerText = joined(winner);
         assertTrue(winnerText.contains("✔ Type Rush COMPLETE"));
         assertTrue(winnerText.contains("♛ Tonim"));
-        assertTrue(winnerText.contains("Answer: answer"));
+        assertTrue(winnerText.contains("Answer › answer"));
         assertFalse(winnerText.contains("Total wins:"));
         assertTrue(winner.stream().anyMatch(this::hasHover));
 
         String timeoutText = joined(renderer.render(config, "timeout", values));
         assertTrue(timeoutText.contains("⌛ Type Rush EXPIRED"));
+        assertTrue(timeoutText.contains("Answer › answer"));
         assertFalse(timeoutText.contains("CHAT EVENT ENDED"));
 
         String cancelledText = joined(renderer.render(config, "cancelled", values));
         assertTrue(cancelledText.contains("✕ Type Rush CANCELLED"));
+        assertTrue(cancelledText.contains("Stopped by staff"));
         assertFalse(cancelledText.contains("No reward or win statistic was issued"));
     }
 

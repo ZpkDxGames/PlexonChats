@@ -35,7 +35,7 @@ class ChatEventMigrationTest extends PluginTestBase {
         YamlConfiguration defaults = defaults();
 
         assertTrue(ConfigUpgrader.upgrade(current, defaults));
-        assertEquals(9, current.getInt("config-version"));
+        assertEquals(10, current.getInt("config-version"));
         assertEquals("TYPE", current.getString("chat-events.events.bingo.type"));
         assertEquals("My Legacy Bingo Word", current.getString("chat-events.events.bingo.name"));
         assertEquals(9, current.getInt("chat-events.events.bingo.weight"));
@@ -96,7 +96,7 @@ class ChatEventMigrationTest extends PluginTestBase {
                 """);
 
         assertTrue(ConfigUpgrader.upgrade(current, defaults()));
-        assertEquals(9, current.getInt("config-version"));
+        assertEquals(10, current.getInt("config-version"));
         assertEquals("Saturday Bingo", current.getString("chat-events.events.my-bingo.name"));
         assertEquals("BINGO", current.getString("chat-events.events.my-bingo.type"));
         assertEquals(17, current.getInt("chat-events.events.my-bingo.weight"));
@@ -151,7 +151,7 @@ class ChatEventMigrationTest extends PluginTestBase {
                 """);
 
         assertTrue(ConfigUpgrader.upgrade(current, defaults()));
-        assertEquals(9, current.getInt("config-version"));
+        assertEquals(10, current.getInt("config-version"));
         assertTrue(current.getBoolean("chat-events.discord.enabled"));
         assertEquals("WEBHOOK", current.getString("chat-events.discord.transport"));
         assertEquals("DISPLAY_ONLY", current.getString("chat-events.discord.participation-mode"));
@@ -164,37 +164,62 @@ class ChatEventMigrationTest extends PluginTestBase {
         assertFalse(current.contains("chat-events.bingo.discord"), "legacy duplicate secret location must be removed");
         assertEquals("TYPE", current.getString("chat-events.events.custom.type"));
         assertEquals(3, current.getInt("chat-events.events.custom.weight"));
-        assertFalse(current.contains("chat-events.events.type-rush"), "administrator-owned event collection must not be repopulated");
+        assertFalse(current.contains("chat-events.events.type-rush"), "non-empty administrator-owned event collection must not be repopulated");
     }
 
-    @Test void v8StockPresentationMigratesToCompactHoverAwareCards() throws Exception {
+    @Test void v9EmptyEventLibraryRegressionIsRecoveredWithPlayableStockDefinitions() throws Exception {
+        YamlConfiguration current = defaults();
+        current.set("config-version", 9);
+        current.set("chat-events.events", null);
+        current.createSection("chat-events.events");
+
+        assertTrue(ConfigUpgrader.upgrade(current, defaults()));
+        assertEquals(10, current.getInt("config-version"));
+        assertTrue(current.isConfigurationSection("chat-events.events.type-rush"));
+        assertTrue(current.isConfigurationSection("chat-events.events.unscramble"));
+        assertTrue(current.isConfigurationSection("chat-events.events.math-normal"));
+        assertTrue(current.isConfigurationSection("chat-events.events.trivia"));
+        assertTrue(current.isConfigurationSection("chat-events.events.reverse"));
+        assertTrue(current.isConfigurationSection("chat-events.events.bingo-classic"));
+        assertTrue(current.getStringList("chat-events.events.unscramble.words").size() >= 30);
+        assertTrue(current.getStringList("chat-events.events.type-rush.values").size() >= 25);
+        assertTrue(current.getMapList("chat-events.events.trivia.entries").size() >= 12);
+        assertTrue(current.getStringList("chat-events.events.math-normal.operations").contains("DIVIDE"));
+        assertEquals(40, current.getInt("chat-events.events.math-normal.max-operand"));
+        assertEquals(125, current.getInt("chat-events.events.math-hard.max-operand"));
+    }
+
+    @Test void v8StockPresentationMigratesThroughV10ToCompactHoverAwareCards() throws Exception {
         YamlConfiguration current = defaults();
         current.set("config-version", 8);
 
         assertTrue(ConfigUpgrader.upgrade(current, defaults()));
-        assertEquals(9, current.getInt("config-version"));
+        assertEquals(10, current.getInt("config-version"));
         assertTrue(current.getStringList("chat-events.presentation.start").stream().anyMatch(line -> line.contains("✦ {event_type}")));
-        assertTrue(current.getStringList("chat-events.presentation.start").stream().anyMatch(line -> line.contains("<hover:show_text:")));
+        assertTrue(current.getStringList("chat-events.presentation.start").stream().anyMatch(line -> line.contains("HOW TO PLAY")));
         assertFalse(current.getStringList("chat-events.presentation.start").stream().anyMatch(line -> line.contains("CHAT EVENT")));
         assertTrue(current.getStringList("chat-events.presentation.winner").stream().anyMatch(line -> line.contains("✔ {event_type} COMPLETE")));
         assertTrue(current.getStringList("chat-events.presentation.timeout").stream().anyMatch(line -> line.contains("⌛ {event_type} EXPIRED")));
         assertTrue(current.getStringList("chat-events.presentation.cancelled").stream().anyMatch(line -> line.contains("✕ {event_type} CANCELLED")));
-        assertTrue(current.getStringList("chat-events.bingo.messages.start").stream().anyMatch(line -> line.contains("✦ BINGO")));
+        assertTrue(current.getStringList("chat-events.bingo.messages.start").stream().anyMatch(line -> line.contains("HOW TO PLAY")));
         assertEquals("<gray>Rearrange:</gray> <aqua>{scrambled}</aqua>", current.getString("chat-events.events.unscramble.prompt"));
         assertEquals("<gray>Solve:</gray> <aqua>{expression}</aqua>", current.getString("chat-events.events.math-normal.prompt"));
+        assertTrue(current.getStringList("chat-events.events.unscramble.words").contains("prismarine"));
     }
 
-    @Test void v8CustomizedPresentationAndPromptRemainAdministratorOwned() throws Exception {
+    @Test void v8CustomizedPresentationPromptAndNonEmptyEventCollectionRemainAdministratorOwned() throws Exception {
         YamlConfiguration current = defaults();
         current.set("config-version", 8);
         List<String> customStart = List.of("<red>MY CUSTOM EVENT</red>", "{prompt}");
         current.set("chat-events.presentation.start", customStart);
         current.set("chat-events.events.unscramble.prompt", "<blue>Custom {scrambled}</blue>");
+        current.set("chat-events.events.unscramble.words", List.of("myword", "anotherword"));
 
         assertTrue(ConfigUpgrader.upgrade(current, defaults()));
-        assertEquals(9, current.getInt("config-version"));
+        assertEquals(10, current.getInt("config-version"));
         assertEquals(customStart, current.getStringList("chat-events.presentation.start"));
         assertEquals("<blue>Custom {scrambled}</blue>", current.getString("chat-events.events.unscramble.prompt"));
+        assertEquals(List.of("myword", "anotherword"), current.getStringList("chat-events.events.unscramble.words"));
     }
 
     private YamlConfiguration defaults() throws Exception {

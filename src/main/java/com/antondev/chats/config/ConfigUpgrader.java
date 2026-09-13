@@ -7,11 +7,12 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
-/** Adds new options without overwriting administrator-owned values or restoring deleted custom entries. */
+/** Adds new options without overwriting administrator-owned values, while repairing known migration regressions. */
 public final class ConfigUpgrader {
-    public static final int VERSION = 9;
+    public static final int VERSION = 10;
     private static final Set<String> USER_COLLECTIONS = Set.of(
             "gui.items", "gui.admin.items", "gui.events.items", "gui.creator.items", "auto-messages.groups",
             "chat-events.events");
@@ -26,6 +27,7 @@ public final class ConfigUpgrader {
             if (previousVersion < 8) migrateDiscordV8(current);
             merge(current, defaults, "");
             if (previousVersion < 9) migratePresentationV9(current);
+            if (previousVersion < 10) migrateChatEventsV10(current, defaults);
             // Preserve administrator-owned GUI collections. Add only cross-page entry points that are known-safe.
             copySectionIfMissing(current, defaults, "gui.admin.items.chat-events");
             current.set("config-version", VERSION);
@@ -101,7 +103,7 @@ public final class ConfigUpgrader {
 
     /**
      * v9 refreshes only known stock v8 Chat Event presentation text. Exact administrator-owned templates remain untouched.
-     * The new cards remove repeated labels, use compact state symbols, and add hover help without changing gameplay state.
+     * The cards remove repeated labels, use compact state symbols, and add hover help without changing gameplay state.
      */
     private static void migratePresentationV9(YamlConfiguration current) {
         replaceListIfExact(current, "chat-events.presentation.start", List.of(
@@ -197,10 +199,171 @@ public final class ConfigUpgrader {
                 "<gray>Text:</gray> <aqua>{value}</aqua>");
     }
 
+    /**
+     * v10 repairs the v6-v9 empty event-library migration regression and refreshes only exact stock content.
+     * A non-empty administrator-owned event collection is never repopulated or merged with stock definitions.
+     */
+    private static void migrateChatEventsV10(YamlConfiguration current, YamlConfiguration defaults) {
+        ConfigurationSection events = current.getConfigurationSection("chat-events.events");
+        if (events == null || events.getKeys(false).isEmpty()) {
+            current.set("chat-events.events", null);
+            copySectionIfMissing(current, defaults, "chat-events.events");
+            // Defaults shipped before v10 are v8 text; normalize newly recovered stock prompts before v10 styling.
+            migratePresentationV9(current);
+        }
+
+        migratePresentationV10(current);
+        migrateStockContentV10(current);
+    }
+
+    private static void migratePresentationV10(YamlConfiguration current) {
+        replaceListIfExact(current, "chat-events.presentation.start", List.of(
+                "{separator}",
+                "<gradient:#55ffff:#1597ff><bold>✦ {event_type}</bold></gradient> <hover:show_text:'<gray>First correct answer wins.</gray><newline><dark_gray>Answer in LOCAL or GLOBAL public chat.</dark_gray>'><aqua>ⓘ</aqua></hover>",
+                "",
+                "<white>{prompt}</white>",
+                "",
+                "<hover:show_text:'<gray>Event reward</gray>'><gold>◆ {reward}</gold></hover> <dark_gray>•</dark_gray> <hover:show_text:'<gray>Time limit</gray>'><yellow>⏱ {duration_seconds}s</yellow></hover>",
+                "{separator}"), List.of(
+                "{separator}",
+                "<gradient:#55ffff:#1597ff><bold>✦ {event_type}</bold></gradient> <dark_gray>•</dark_gray> <hover:show_text:'<gray>First correct answer wins.</gray><newline><gray>Answer in LOCAL or GLOBAL public chat.</gray>'><aqua>HOW TO PLAY ⓘ</aqua></hover>",
+                "<white>{prompt}</white>",
+                "<hover:show_text:'<gray>Event reward</gray>'><gold>◆ {reward}</gold></hover> <dark_gray>•</dark_gray> <hover:show_text:'<gray>Time limit</gray>'><yellow>⏱ {duration_seconds}s</yellow></hover> <dark_gray>•</dark_gray> <gray>first correct answer wins</gray>",
+                "{separator}"));
+
+        replaceListIfExact(current, "chat-events.presentation.winner", List.of(
+                "{separator}",
+                "<green><bold>✔ {event_type} COMPLETE</bold></green>",
+                "",
+                "<hover:show_text:'<gray>Chat Event wins</gray><newline><gray>Total:</gray> <yellow>{winner_total_wins}</yellow><newline><gray>{event_type}:</gray> <yellow>{winner_type_wins}</yellow>'><gold>♛</gold> <white>{winner}</white></hover> <gray>answered correctly in</gray> <aqua>{elapsed}</aqua>",
+                "<gray>Answer:</gray> <white>{answer}</white>",
+                "<hover:show_text:'<gray>Reward granted to the winner.</gray>'><gold>◆ {reward}</gold></hover>",
+                "{separator}"), List.of(
+                "{separator}",
+                "<green><bold>✔ {event_type} COMPLETE</bold></green>",
+                "<gold>♛</gold> <hover:show_text:'<gray>Chat Event wins</gray><newline><gray>Total:</gray> <yellow>{winner_total_wins}</yellow><newline><gray>{event_type}:</gray> <yellow>{winner_type_wins}</yellow>'><white>{winner}</white></hover> <dark_gray>•</dark_gray> <aqua>{elapsed}</aqua>",
+                "<gray>Answer</gray> <dark_gray>›</dark_gray> <white>{answer}</white>",
+                "<hover:show_text:'<gray>Reward granted to the winner.</gray>'><gold>◆ {reward}</gold></hover>",
+                "{separator}"));
+
+        replaceListIfExact(current, "chat-events.presentation.timeout", List.of(
+                "{separator}",
+                "<yellow><bold>⌛ {event_type} EXPIRED</bold></yellow>",
+                "",
+                "<gray>No correct answer</gray>",
+                "<gray>Answer:</gray> <white>{answer}</white>",
+                "{separator}"), List.of(
+                "{separator}",
+                "<yellow><bold>⌛ {event_type} EXPIRED</bold></yellow>",
+                "<gray>No correct answer</gray> <dark_gray>•</dark_gray> <gray>Answer</gray> <dark_gray>›</dark_gray> <white>{answer}</white>",
+                "{separator}"));
+
+        replaceListIfExact(current, "chat-events.presentation.cancelled", List.of(
+                "{separator}",
+                "<red><bold>✕ {event_type} CANCELLED</bold></red>",
+                "",
+                "<gray>Event cancelled by staff.</gray>",
+                "{separator}"), List.of(
+                "{separator}",
+                "<red><bold>✕ {event_type} CANCELLED</bold></red>",
+                "<gray>Stopped by staff <dark_gray>•</dark_gray> no reward issued</gray>",
+                "{separator}"));
+
+        replaceListIfExact(current, "chat-events.bingo.messages.start", List.of(
+                "{separator}",
+                "<gold><bold>✦ BINGO</bold></gold> <hover:show_text:'<gray>Complete one enabled pattern and claim it first.</gray><newline><gray>Use /bingo claim or type bingo in public chat.</gray>'><aqua>ⓘ</aqua></hover>",
+                "<gray>Shared board <dark_gray>•</dark_gray> automatic marking <dark_gray>•</dark_gray> no FREE center</gray>",
+                "<hover:show_text:'<gray>Event reward</gray>'><gold>◆ {reward}</gold></hover> <dark_gray>•</dark_gray> <hover:show_text:'<gray>Time limit</gray>'><yellow>⏱ {duration_seconds}s</yellow></hover> <dark_gray>•</dark_gray> <aqua>First call {next_draw}</aqua>",
+                "{separator}"), List.of(
+                "{separator}",
+                "<gold><bold>✦ BINGO</bold></gold> <dark_gray>•</dark_gray> <hover:show_text:'<gray>Complete any enabled line on the shared board.</gray><newline><gray>Marks are automatic.</gray><newline><gray>Claim with /bingo claim or type bingo.</gray>'><aqua>HOW TO PLAY ⓘ</aqua></hover>",
+                "<gray>Shared 75-ball board <dark_gray>•</dark_gray> automatic marking <dark_gray>•</dark_gray> no FREE center</gray>",
+                "<hover:show_text:'<gray>Event reward</gray>'><gold>◆ {reward}</gold></hover> <dark_gray>•</dark_gray> <yellow>⏱ {duration_seconds}s</yellow> <dark_gray>•</dark_gray> <aqua>◈ first call {next_draw}</aqua>",
+                "{separator}"));
+
+        replaceListIfExact(current, "chat-events.bingo.messages.draw", List.of(
+                "<gold>◈ BINGO</gold> <dark_gray>•</dark_gray> <gray>Call</gray> <yellow>#{draw_count}</yellow> <dark_gray>›</dark_gray> <white>{drawn_number}</white>"), List.of(
+                "<gold>◈ BINGO</gold> <dark_gray>•</dark_gray> <white>{drawn_number}</white> <dark_gray>•</dark_gray> <gray>{draw_count}/75 called</gray> <dark_gray>•</dark_gray> <aqua>next {next_draw}</aqua>"));
+
+        replaceListIfExact(current, "chat-events.bingo.messages.invalid-claim", List.of(
+                "<yellow>✦ Not yet.</yellow> <gray>No winning pattern is complete.</gray> <hover:show_text:'<gray>Keep watching the shared board; marks are automatic.</gray>'><aqua>ⓘ</aqua></hover>"), List.of(
+                "<yellow>⚠ Claim rejected</yellow> <dark_gray>•</dark_gray> <gray>no completed pattern yet</gray> <hover:show_text:'<gray>Keep watching the shared board; marks are automatic.</gray>'><aqua>ⓘ</aqua></hover>"));
+    }
+
+    private static void migrateStockContentV10(YamlConfiguration current) {
+        replaceStringListIfExact(current, "chat-events.events.type-rush.values",
+                List.of("bingo", "plexon", "diamond", "redstone"),
+                List.of("creeper", "enderman", "diamond", "redstone", "elytra", "netherite", "axolotl", "warden",
+                        "beacon", "totem", "trident", "shulker", "allay", "anvil", "observer", "piston", "amethyst",
+                        "slime", "blaze", "ghast", "villager", "emerald", "pickaxe", "crafting", "respawn", "bedrock",
+                        "mending", "fortune", "silktouch", "plexon"));
+
+        replaceStringListIfExact(current, "chat-events.events.unscramble.words",
+                List.of("diamond", "redstone", "village", "elytra", "netherite"),
+                List.of("diamond", "redstone", "village", "elytra", "netherite", "creeper", "enderman", "shulker",
+                        "trident", "beacon", "emerald", "amethyst", "observer", "piston", "slimeball", "blaze", "ghast",
+                        "warden", "axolotl", "allay", "pickaxe", "crafting", "furnace", "enchant", "mending", "fortune",
+                        "bedrock", "deepslate", "glowstone", "quartz", "prismarine", "snowball", "minecart", "bookshelf", "campfire"));
+
+        String normal = "chat-events.events.math-normal";
+        if (current.getStringList(normal + ".operations").equals(List.of("ADD", "SUBTRACT", "MULTIPLY"))
+                && current.getInt(normal + ".min-operand", Integer.MIN_VALUE) == 2
+                && current.getInt(normal + ".max-operand", Integer.MIN_VALUE) == 25) {
+            current.set(normal + ".operations", List.of("ADD", "SUBTRACT", "MULTIPLY", "DIVIDE"));
+            current.set(normal + ".max-operand", 40);
+        }
+
+        String hard = "chat-events.events.math-hard";
+        if (current.getStringList(hard + ".operations").equals(List.of("MULTIPLY", "DIVIDE"))
+                && current.getInt(hard + ".min-operand", Integer.MIN_VALUE) == 8
+                && current.getInt(hard + ".max-operand", Integer.MIN_VALUE) == 75) {
+            current.set(hard + ".min-operand", 12);
+            current.set(hard + ".max-operand", 125);
+        }
+
+        replaceStringListIfExact(current, "chat-events.events.reverse.values",
+                List.of("craft", "redstone", "plexon", "diamond"),
+                List.of("creeper", "enderman", "diamond", "redstone", "elytra", "netherite", "beacon", "trident",
+                        "shulker", "amethyst", "observer", "piston", "villager", "emerald", "pickaxe", "crafting",
+                        "furnace", "mending", "fortune", "bedrock", "deepslate", "glowstone", "quartz", "minecart", "plexon"));
+
+        String triviaPath = "chat-events.events.trivia.entries";
+        List<Map<?, ?>> existingTrivia = current.getMapList(triviaPath);
+        if (existingTrivia.size() == 2
+                && "Which dimension contains End Cities?".equals(existingTrivia.get(0).get("question"))
+                && "Which ore is required to craft an enchanting table?".equals(existingTrivia.get(1).get("question"))) {
+            current.set(triviaPath, List.of(
+                    trivia("Which dimension contains End Cities?", "the end", "end"),
+                    trivia("Which ore is required to craft an enchanting table?", "diamond", "diamonds"),
+                    trivia("Which mob drops blaze rods?", "blaze", "blazes"),
+                    trivia("What item is used to activate a Nether portal frame?", "flint and steel", "flint & steel"),
+                    trivia("Which block lets you set a respawn point in the Nether?", "respawn anchor", "anchor"),
+                    trivia("Which mob can teleport and becomes angry when stared at?", "enderman", "endermen"),
+                    trivia("What mineral is the main trading currency for villagers?", "emerald", "emeralds"),
+                    trivia("Which structure contains the End portal?", "stronghold", "a stronghold"),
+                    trivia("What item lets a player glide through the air?", "elytra", "an elytra"),
+                    trivia("Which enchantment repairs gear using experience orbs?", "mending"),
+                    trivia("What block is needed to power a beacon?", "iron block", "gold block", "emerald block", "diamond block", "netherite block", "mineral block"),
+                    trivia("Which hostile mob explodes near players?", "creeper", "a creeper"),
+                    trivia("Which dimension is home to piglins?", "nether", "the nether"),
+                    trivia("What tool is normally required to mine obsidian?", "diamond pickaxe", "netherite pickaxe", "a diamond pickaxe", "a netherite pickaxe"),
+                    trivia("Which block stores experience and enchantments on gear through books?", "anvil", "an anvil")
+            ));
+        }
+    }
+
+    private static Map<String, Object> trivia(String question, String... answers) {
+        return Map.of("question", question, "accepted-answers", List.of(answers));
+    }
+
     private static void replaceListIfExact(YamlConfiguration current, String path, List<String> expected, List<String> replacement) {
         if (!current.contains(path)) return;
         List<String> actual = current.isString(path) ? List.of(current.getString(path, "")) : current.getStringList(path);
         if (actual.equals(expected)) current.set(path, replacement);
+    }
+
+    private static void replaceStringListIfExact(YamlConfiguration current, String path, List<String> expected, List<String> replacement) {
+        if (current.getStringList(path).equals(expected)) current.set(path, replacement);
     }
 
     private static void replaceStringIfExact(YamlConfiguration current, String path, String expected, String replacement) {
