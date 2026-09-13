@@ -4,7 +4,7 @@ import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
-/** Immutable shared 5x5 75-ball Bingo card. Mark state is always derived from draw history. */
+/** Immutable 5x5 75-ball Bingo card. Mark state is participant-owned and represented by cell indices. */
 public final class BingoBoard {
     public static final int CELL_COUNT = 25;
 
@@ -48,19 +48,19 @@ public final class BingoBoard {
         return -1;
     }
 
-    public boolean isMarked(int cell, Set<Integer> drawHistory) {
-        return cell >= 0 && cell < CELL_COUNT && drawHistory.contains(numbers[cell]);
+    public boolean isMarked(int cell, Set<Integer> markedCells) {
+        return cell >= 0 && cell < CELL_COUNT && markedCells.contains(cell);
     }
 
-    public boolean[] marks(Set<Integer> drawHistory) {
+    public boolean[] marks(Set<Integer> markedCells) {
         boolean[] result = new boolean[CELL_COUNT];
-        for (int index = 0; index < CELL_COUNT; index++) result[index] = drawHistory.contains(numbers[index]);
+        for (int index = 0; index < CELL_COUNT; index++) result[index] = markedCells.contains(index);
         return result;
     }
 
-    public int markedCount(Set<Integer> drawHistory) {
+    public int markedCount(Set<Integer> markedCells) {
         int count = 0;
-        for (int number : numbers) if (drawHistory.contains(number)) count++;
+        for (int index = 0; index < CELL_COUNT; index++) if (markedCells.contains(index)) count++;
         return count;
     }
 

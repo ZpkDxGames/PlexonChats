@@ -1,12 +1,130 @@
-# PlexonChats Configuration — 3.6.0
+# PlexonChats Configuration — 4.0.0
 
-Edit `plugins/PlexonChats/config.yml` using UTF-8 and spaces, then run `/chat reload`. PlexonChats parses, migrates and validates the complete candidate before publishing it. Invalid YAML, MiniMessage, GUI, Chat Event, reward, Bingo or Discord event-sync data does not replace the known-good runtime generation.
+PlexonChats 4.0.0 uses two administrator-facing YAML files with separate responsibilities. Run `/chat reload` after editing either file. The plugin validates the candidate generation before replacing the current runtime state.
 
-Configuration schema is `8`. A successful upgrade creates `config-before-v8-<timestamp>.yml` before writing the migrated file.
+## Ownership split
 
-## Discord Chat Events
+### `config.yml`
 
-Discord event synchronization is presentation-only in 3.6.0:
+`config.yml` remains schema **v10** and owns presentation/integration concerns, including:
+
+- chat formats and channels;
+- GUI and player-facing presentation;
+- auto-messages and connection messages;
+- Chat Events master `chat-events.enabled` switch;
+- Chat Event presentation cards/messages/sounds;
+- reward-profile bodies;
+- Discord event transport/credentials;
+- other integrations.
+
+### `data.yml`
+
+`data.yml` starts at schema **1** and owns gameplay/minigame data:
+
+```yaml
+schema-version: 1
+
+scheduler:
+  enabled: true
+  initial-delay-seconds: 300
+  min-interval-seconds: 900
+  max-interval-seconds: 1800
+  minimum-online: 2
+  pause-when-empty: true
+
+randomizer:
+  mode: WEIGHTED
+  avoid-immediate-repeat: true
+  history-size: 2
+
+minigames:
+  type-rush:
+    type: TYPE
+    enabled: true
+    weight: 20
+    cooldown-seconds: 600
+    duration-seconds: 20
+    reward-profile: basic
+    accepted-channels: [LOCAL, GLOBAL]
+    values: []
+
+  bingo-classic:
+    type: BINGO
+    enabled: true
+    weight: 4
+    cooldown-seconds: 3600
+    duration-seconds: 600
+    reward-profile: epic
+    min-online: 2
+    accepted-channels: [LOCAL, GLOBAL]
+    lobby:
+      duration-seconds: 60
+      reminders-seconds: [60, 30, 15, 5]
+      minimum-participants: 2
+      admin-minimum-participants: 1
+      admin-lobby-seconds: 15
+      admin-fast-lobby-seconds: 5
+      allow-late-join: false
+      require-online-at-start: true
+      disconnect-policy: KEEP
+    card:
+      free-center: false
+    draws:
+      first-call-delay-seconds: 5
+      interval-seconds: 8
+      range-min: 1
+      range-max: 75
+    winning:
+      horizontal: true
+      vertical: true
+      diagonal: true
+      full-house: false
+    render:
+      font: "minecraft:uniform"
+      left-padding: 3
+      cell-width: 4
+      column-gap: 1
+      show-border: false
+      show-last-call: true
+      show-draw-count: true
+      on-join: true
+      on-start: true
+      after-successful-mark: true
+      on-every-draw: false
+```
+
+The bundled file contains the complete stock TYPE/UNSCRAMBLE/MATH/TRIVIA/REVERSE/BINGO library. Runtime cards, manual marks, call history/deadlines, and current cooldown timestamps remain runtime state rather than being rewritten into `data.yml`.
+
+## Scheduler/randomizer validation
+
+The scheduler requires non-negative initial delay/minimum-online and a positive interval range where minimum <= maximum. Randomizer mode accepts `WEIGHTED` or `UNIFORM`; history size must be non-negative.
+
+Disabled or cooldown-active minigames are excluded before selection. The scheduler honors normal minimum-online values and avoids unbounded random retry loops.
+
+## Bingo validation
+
+At minimum:
+
+- lobby duration must be positive;
+- reminder thresholds must be positive, unique, and not exceed lobby duration;
+- normal/admin participant minimums must be at least 1;
+- first-call delay must be non-negative;
+- draw interval must be positive;
+- at least one winning pattern must be enabled;
+- render padding/cell width/gap are bounded;
+- event weight/cooldown/duration must be valid.
+
+Where safe, one malformed minigame is disabled for that runtime generation rather than taking down unrelated chat features.
+
+## Bingo mechanics controlled by `data.yml`
+
+The Bingo definition controls lobby timing, participation thresholds, card/free-center rule, draw timing, enabled patterns, render geometry, weight, cooldown, duration, reward-profile reference, channels, world/permission eligibility, and normal minimum-online requirements.
+
+Draw calls and participant marks are separate. A called number is only eligible to be manually marked; it is never automatically inserted into a participant's marked-cell set.
+
+## Discord configuration
+
+Discord remains in `config.yml` because credentials do not belong in gameplay data:
 
 ```yaml
 chat-events:
@@ -19,158 +137,29 @@ chat-events:
       enabled: false
       url: ""
       username: "PlexonChats Events"
-    embeds:
-      timestamp: true
-      show-reward: true
-      show-winner-avatar: false
-      show-event-type: true
-      show-footer: true
     updates:
       edit-existing-message: true
       minimum-edit-interval-ms: 1000
-    events:
-      bingo:
-        enabled: true
-        show-live-board: true
-        update-on-draw: true
-        show-last-call: true
-        show-draw-count: true
-        show-patterns: true
-        announce-winner: true
-      math:
-        enabled: true
-      type:
-        enabled: true
-      unscramble:
-        enabled: true
-      trivia:
-        enabled: true
-      reverse:
-        enabled: true
 ```
 
-### Transport
+`transport` accepts `AUTO`, `DISCORDSRV`, or `WEBHOOK`. `DISPLAY_ONLY` remains mandatory. Bingo embeds expose shared lifecycle metadata only; participant cards are never rendered to a shared Discord channel.
 
-`transport` accepts `AUTO`, `DISCORDSRV`, or `WEBHOOK`.
+`chat-events.discord.webhook.url` is a secret. It is not emitted by normal commands, GUI, diagnostics, embeds, or player-facing errors, and it is never migrated into `data.yml`.
 
-- `AUTO` prefers DiscordSRV when installed/compatible and falls back to an enabled webhook.
-- `DISCORDSRV` requires DiscordSRV and resolves `channel-id` when supplied; otherwise it can use the configured PlexonChats DiscordSRV game-channel destination.
-- `WEBHOOK` requires `webhook.enabled: true` and a valid HTTP(S) webhook URL.
+## First v4 migration
 
-DiscordSRV and webhook operations are asynchronous. Webhook delivery uses bounded work, short timeouts, one bounded retry for retryable errors and Discord retry timing when available.
-
-### Participation
-
-`participation-mode` must be `DISPLAY_ONLY` in 3.6.0. Discord users may see event state but Discord-origin messages do not become answers or Bingo claims.
-
-### One-message lifecycle
-
-`updates.edit-existing-message` must remain `true` in 3.6.0. Each event run creates one Discord message, then edits it on live changes and terminal completion. `minimum-edit-interval-ms` accepts `250..30000`; live Bingo updates may be coalesced while gameplay continues immediately.
-
-### Secrets
-
-`chat-events.discord.webhook.url` is a secret. It is never emitted by normal commands, GUI, diagnostics, embeds or player-visible errors. Status surfaces expose only whether the relevant transport/channel is configured and ready.
-
-## Bingo
-
-Fresh shared-board defaults:
-
-```yaml
-chat-events:
-  bingo:
-    enabled: true
-    draw:
-      first-delay-seconds: 5
-      interval-seconds: 5
-    winning:
-      horizontal: true
-      vertical: true
-      diagonal: true
-      full-house: false
-    messages:
-      start:
-        - "{separator}"
-        - "<gold><bold>BINGO</bold></gold> <gray>Watch the shared board and claim the first completed pattern.</gray>"
-        - "<gray>Use <white>/bingo claim</white> or type <white>bingo</white> in public chat.</gray>"
-        - "<gray>First call in:</gray> <yellow>5s</yellow>"
-        - "{separator}"
-      draw:
-        - "<gold>[BINGO]</gold> <gray>Call</gray> <yellow>#{draw_count}</yellow><gray>:</gray> <white>{drawn_number}</white>"
-      invalid-claim:
-        - "<yellow>[BINGO] No enabled winning pattern is complete yet.</yellow>"
-
-  events:
-    bingo-classic:
-      enabled: true
-      name: "Classic Bingo"
-      type: BINGO
-      weight: 5
-      cooldown-seconds: 3600
-      reward-profile: epic
-      min-online: 2
-      duration-seconds: 420
-```
-
-### Timing
-
-- `draw.first-delay-seconds`: `0..300`.
-- `draw.interval-seconds`: `1..300` and is the authoritative interval between automatic calls.
-- Event `duration-seconds` controls the overall run timeout.
-
-Bingo uses the existing global Chat Events coordinator. There is no second timer service.
-
-### Winning patterns
-
-At least one winning pattern must be enabled. Horizontal, vertical and diagonal are enabled by default. `full-house: true` adds the 25-cell blackout pattern; it does not disable normal line wins.
-
-### Discord Bingo presentation
-
-Bingo-specific Discord switches are under `chat-events.discord.events.bingo`, not under the gameplay section. The renderer reads the same active `BingoRun` board/draw history used by Minecraft. It never creates a separate board and never renders a FREE center.
-
-## Bingo event definitions
-
-Each `type: BINGO` definition remains a normal scheduler definition. Administrator-owned values include event ID/name, enabled state, weight, cooldown, reward-profile reference, minimum online, duration, and normal world/permission/channel eligibility inherited from Chat Events.
-
-Gameplay-specific shared-board behavior lives under `chat-events.bingo`; per-player Bingo subtrees are obsolete.
-
-## Event definitions and migration ownership
-
-`chat-events.events` is administrator-owned. Migration does not replace the collection with bundled defaults. Custom event IDs and unrelated event definitions survive. The explicit `type` field is authoritative; an ordinary `type: TYPE` definition with ID `bingo` remains TYPE.
-
-`chat-events.reward-profiles` is also retained. Profiles may combine Vault economy, PlexonKeys and administrator-authored console commands. Reward execution remains downstream of the exact-once winner boundary.
-
-## v7 → v8 migration
-
-The 3.6.0 migrator preserves administrator-owned event definitions, reward profiles, timers and enable states. The old 3.5.0 Bingo-only Discord subtree:
+When `data.yml` is absent, PlexonChats creates:
 
 ```text
-chat-events.bingo.discord
+config-before-v4-<timestamp>.yml
 ```
 
-is mapped into the generalized `chat-events.discord` model when present. Existing enabled state, webhook URL, username, draw updates and winner announcement intent are carried forward where possible. A valid webhook URL is preserved exactly, then removed from the obsolete duplicate location.
+Then it migrates compatible administrator-owned v3.6.2 Chat Events gameplay into schema-1 `data.yml`, including custom enabled states, weights, cooldowns, durations, minimum-online values, reward references, channels, content pools, math ranges, and compatible Bingo draw/pattern settings. New lobby/manual-mark settings come from v4 defaults.
 
-The existing v6 → v7 shared-Bingo migration still runs first for older configurations, so multi-generation upgrades preserve the 3.5.0 shared-board corrections.
+If `data.yml` already exists, the first-start migration does not overwrite its administrator values.
 
-## Removed historical Bingo concepts
+## Reload safety
 
-These participant-card concepts remain inactive:
+`/chat reload` reloads `config.yml` and `data.yml` as one runtime generation. Invalid structural data/configuration does not silently replace the current known-good configuration. Active event/Bingo runtime state is closed through the normal manager lifecycle rather than persisted as a half-valid YAML snapshot.
 
-```text
-join.duration-seconds
-join.min-participants
-join-seconds
-min-participants
-board.free-center
-FREE center
-participant card state
-manual/click mark settings
-participant-only draw traffic
-```
-
-## Presentation and trust boundary
-
-Administrator-authored text fields may use MiniMessage where supported. Raw player/provider values are inserted as Components, not parsed as trusted MiniMessage. Discord embed content is generated from validated configuration plus authoritative event state.
-
-## Transactional reload
-
-`/chat reload` validates the whole candidate, including schema migration and Discord event-sync settings, before replacing the current runtime generation. On failure the live configuration remains active. The pre-v8 backup provides the rollback copy for a migrated file.
+See [BINGO.md](BINGO.md), [CHAT-EVENTS.md](CHAT-EVENTS.md), and [UPGRADING.md](UPGRADING.md).

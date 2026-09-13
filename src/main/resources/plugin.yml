@@ -19,8 +19,8 @@ commands:
     usage: /chat <channel|gui|admin|reload|status|diagnostics|automessages|events>
     permission: plexonchats.use
   bingo:
-    description: View and claim the active shared Bingo board
-    usage: /bingo [claim|start|stop|status]
+    description: Join, view, mark and claim participant-owned Bingo rounds
+    usage: /bingo [join|leave|claim|start [now]|stop|status]
   g:
     description: Quick global chat shortcut
     usage: /g <message>
@@ -69,7 +69,7 @@ permissions:
     description: Allows opening the chat GUI
     default: true
   plexonchats.reload:
-    description: Allows reloading the plugin config
+    description: Allows reloading config.yml and data.yml
     default: op
   plexonchats.announce:
     description: Allows using announcement broadcast commands
@@ -87,7 +87,7 @@ permissions:
     description: Enable, disable, pause, resume, start, stop, preview and administer Chat Events
     default: op
   plexonchats.events.bingo.play:
-    description: View and claim shared Bingo Chat Events
+    description: Join participant-owned Bingo rounds, mark called cells and claim Bingo
     default: true
   plexonchats.admin.events.discord:
     description: Inspect and test Discord Chat Events synchronization without exposing webhook secrets

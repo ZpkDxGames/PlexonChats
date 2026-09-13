@@ -91,7 +91,7 @@ class ConfigurationAndGuiTest extends PluginTestBase {
         assertTrue(migrated.isConfigurationSection("chat-events.events.bingo-classic"));
     }
     @Test void releaseMetadataMatchesChatEventsCandidate() {
-        assertEquals("3.6.2", plugin.getPluginMeta().getVersion());
+        assertEquals("4.0.0", plugin.getPluginMeta().getVersion());
         assertEquals(10, com.antondev.chats.config.ConfigUpgrader.VERSION);
     }
     @Test void rowsAndCustomButtonPositionsAreHonored() throws Exception {
