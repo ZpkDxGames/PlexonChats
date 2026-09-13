@@ -2,15 +2,19 @@ package com.antondev.chats.event;
 
 import com.antondev.chats.ChatChannel;
 import com.antondev.chats.PlexonChats;
-import com.antondev.chats.event.bingo.BingoDiscordWebhook;
 import com.antondev.chats.event.bingo.BingoPattern;
 import com.antondev.chats.event.bingo.BingoRenderer;
 import com.antondev.chats.event.bingo.BingoRun;
+import com.antondev.chats.event.discord.BingoDiscordEmbedRenderer;
+import com.antondev.chats.event.discord.ChatEventDiscordPublisher;
+import com.antondev.chats.event.discord.DiscordEventEmbed;
+import com.antondev.chats.event.discord.DiscordEventSettings;
+import com.antondev.chats.event.discord.StandardEventDiscordEmbedRenderer;
 import com.antondev.chats.text.ComponentTemplate;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Sound;
 import org.bukkit.command.CommandSender;
@@ -24,6 +28,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -31,6 +36,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class ChatEventManager {
     public enum StartStatus { STARTED, DISABLED, ALREADY_ACTIVE, NOT_FOUND, EVENT_DISABLED, COOLDOWN, NOT_ENOUGH_PLAYERS, NO_ELIGIBLE_EVENTS, GENERATION_FAILED }
 
+    private static final PlainTextComponentSerializer PLAIN = PlainTextComponentSerializer.plainText();
     private final PlexonChats plugin;
     private final ChatEventRewardService rewards;
     private final ChatEventStatisticsService statistics;
@@ -40,8 +46,9 @@ public final class ChatEventManager {
     private final AtomicReference<ChatEventEngine.Competition> active = new AtomicReference<>();
     private final AtomicReference<BingoRun> activeBingo = new AtomicReference<>();
     private final Map<String, Long> cooldownUntilNanos = new LinkedHashMap<>();
-    private final BingoDiscordWebhook bingoDiscord;
     private volatile ChatEventConfig config;
+    private volatile DiscordEventSettings discordSettings;
+    private volatile ChatEventDiscordPublisher discordPublisher;
     private BukkitTask coordinatorTask;
     private boolean paused;
     private long nextDeadlineNanos = Long.MAX_VALUE;
@@ -54,15 +61,21 @@ public final class ChatEventManager {
         this.plugin = plugin;
         this.rewards = new ChatEventRewardService(plugin);
         this.statistics = new ChatEventStatisticsService(plugin.getDataFolder().toPath().resolve("chat-events.db"), plugin.getLogger());
-        this.bingoDiscord = new BingoDiscordWebhook(plugin.getLogger());
     }
 
     public void reload() {
         ChatEventConfig next = ChatEventConfig.read(plugin.getConfigManager().section("chat-events"));
         cancelActive("CONFIG_RELOAD", true);
         stopCoordinator();
+        closeDiscordPublisher();
         config = next;
         rewards.reload(next);
+        discordSettings = DiscordEventSettings.read(plugin.getConfigManager().section("chat-events"));
+        discordPublisher = new ChatEventDiscordPublisher(plugin, discordSettings);
+        if (discordSettings.enabled() && !discordPublisher.transportStatus().equals("READY")
+                && !discordPublisher.transportStatus().equals("WAITING_FOR_DISCORD")) {
+            plugin.getLogger().warning("Discord Chat Events are enabled but transport is unavailable: " + discordPublisher.transportStatus());
+        }
         cooldownUntilNanos.clear();
         lastStartedId = null;
         paused = false;
@@ -75,12 +88,17 @@ public final class ChatEventManager {
         cancelActive("PLUGIN_DISABLE", false);
         stopCoordinator();
         config = null;
+        closeDiscordPublisher();
         statistics.close();
-        bingoDiscord.close();
     }
 
     public void refreshIntegrations() { rewards.refreshIntegrations(); }
     private void stopCoordinator() { if (coordinatorTask != null) coordinatorTask.cancel(); coordinatorTask = null; }
+    private void closeDiscordPublisher() {
+        ChatEventDiscordPublisher publisher = discordPublisher;
+        discordPublisher = null;
+        if (publisher != null) publisher.close();
+    }
 
     private void tick() {
         ChatEventConfig current = config;
@@ -124,8 +142,7 @@ public final class ChatEventManager {
         List<Component> call = bingoMessage(run.definition().bingo(), "draw", values,
                 List.of("<gold>[BINGO]</gold> <gray>Call</gray> <yellow>#{draw_count}</yellow><gray>:</gray> <white>{drawn_number}</white>"));
         announceBingoAudience(run, withBlankSpacing(join(call, BingoRenderer.render(run, null))));
-        ChatEventConfig.BingoDiscord discord = run.definition().bingo().discord();
-        if (discord.sendDraws()) bingoDiscord.send(discord, "Bingo call " + run.drawCount() + ": " + BingoRenderer.label(drawn), run);
+        publishBingoUpdate(run);
     }
 
     /** Called only from the accepted native Minecraft public-chat route after PlexonChatEvent cancellation. */
@@ -171,6 +188,7 @@ public final class ChatEventManager {
         values.put("winner_type_wins", Component.text(Long.toString(stats.typeWins(definition.type().name()))));
         announce(running.eligiblePlayers(), presentation.render(config, "winner", values));
         play(running.eligiblePlayers(), "win");
+        publishStandardWinner(running, player.getName(), reward.summary(), formatElapsed(elapsed));
         lastEvent = definition.id() + "/WON";
         lastWinner = player.getName();
         if (reward.hasFailure()) recentFailure = "reward partial failure for " + definition.id();
@@ -197,6 +215,7 @@ public final class ChatEventManager {
                 ? Component.text(running.round().canonicalAnswer()) : Component.text("not revealed", NamedTextColor.GRAY));
         announce(running.eligiblePlayers(), presentation.render(config, "timeout", values));
         play(running.eligiblePlayers(), "timeout");
+        publishStandardTimeout(running);
         lastEvent = definition.id() + "/TIMED_OUT";
         lastWinner = "-";
         active.compareAndSet(running, null);
@@ -224,7 +243,10 @@ public final class ChatEventManager {
         }
         ChatEventEngine.Competition running = active.get();
         if (running == null || !running.cancel()) return false;
-        if (broadcast) announce(running.eligiblePlayers(), presentation.render(config, "cancelled", baseValues(running.round().definition(), running.round().runId())));
+        if (broadcast) {
+            announce(running.eligiblePlayers(), presentation.render(config, "cancelled", baseValues(running.round().definition(), running.round().runId())));
+            publishStandardCancelled(running);
+        }
         lastEvent = running.round().definition().id() + "/CANCELLED";
         lastWinner = "-";
         active.compareAndSet(running, null);
@@ -288,10 +310,12 @@ public final class ChatEventManager {
         if (!competition.activate()) { active.compareAndSet(competition, null); return StartStatus.GENERATION_FAILED; }
         markStarted(definition, now);
         Map<String, Component> values = baseValues(definition, round.runId());
-        values.put("prompt", renderPrompt(round));
+        Component prompt = renderPrompt(round);
+        values.put("prompt", prompt);
         values.put("answer", Component.text(round.canonicalAnswer()));
         announce(audience, presentation.render(current, "start", values));
         play(audience, "start");
+        publishStandardStart(competition, PLAIN.serialize(prompt));
         plugin.getLogger().info("Chat event started: run=" + round.runId() + " definition=" + definition.id() + " type=" + definition.type()
                 + " participants=" + eligible.size());
         return StartStatus.STARTED;
@@ -324,7 +348,7 @@ public final class ChatEventManager {
                 "{separator}"));
         announceBingoAudience(run, withBlankSpacing(join(intro, BingoRenderer.render(run, null))));
         play(eligibleAudience(definition), "start");
-        if (settings.discord().sendStart()) bingoDiscord.send(settings.discord(), "Bingo started", run);
+        publishBingoStart(run);
         plugin.getLogger().info("Bingo event started: run=" + runId + " definition=" + definition.id()
                 + " eligible=" + eligiblePlayers(definition).size());
         return StartStatus.STARTED;
@@ -386,8 +410,7 @@ public final class ChatEventManager {
                 "{separator}"), withSeparator(values));
         broadcast(withBlankSpacing(winnerCard));
         play(eligibleAudience(definition), "win");
-        if (definition.bingo().discord().sendWin()) bingoDiscord.send(definition.bingo().discord(),
-                player.getName() + " won Bingo — " + win.pattern().displayName(), run);
+        publishBingoWinner(run, win, player.getName(), reward.summary());
         lastEvent = definition.id() + "/WON";
         lastWinner = player.getName();
         if (reward.hasFailure()) recentFailure = "reward partial failure for " + definition.id();
@@ -426,6 +449,7 @@ public final class ChatEventManager {
                     "<gray>No reward or win statistic was issued.</gray>",
                     "{separator}"), withSeparator(Map.of("reason", Component.text(reason))));
             broadcast(withBlankSpacing(lines));
+            publishBingoTerminal(run, state);
         }
         clearBingo(run, state);
     }
@@ -449,7 +473,7 @@ public final class ChatEventManager {
             sender.sendMessage(Component.text("Patterns: " + patternsText(definition.bingo().winPatterns())));
             sender.sendMessage(Component.text("Duration: " + definition.durationSeconds() + "s"));
             sender.sendMessage(Component.text("Reward: " + rewardDescription(definition.rewardProfile())));
-            sender.sendMessage(Component.text("Discord board sync: " + (definition.bingo().discord().enabled() ? "ENABLED" : "DISABLED")));
+            sender.sendMessage(Component.text("Discord event sync: " + (discordEventsEnabled() ? discordTransport() + "/" + discordTransportStatus() : "DISABLED")));
             return;
         }
         try {
@@ -511,7 +535,7 @@ public final class ChatEventManager {
     public int bingoRemainingCount() { BingoRun value = activeBingo.get(); return value == null ? 0 : value.remainingCount(); }
     public long bingoNextDrawMillis() { BingoRun value = activeBingo.get(); return value == null ? -1 : nextDrawMillis(value); }
     public String bingoPatterns() { BingoRun value = activeBingo.get(); return value == null ? "-" : patternsText(value.patterns()); }
-    public boolean bingoDiscordEnabled() { BingoRun value = activeBingo.get(); return value != null && value.definition().bingo().discord().enabled(); }
+    public boolean bingoDiscordEnabled() { return discordSettings != null && discordSettings.publishes(ChatEventEngine.Type.BINGO); }
     public String bingoRewardProfile() { BingoRun value = activeBingo.get(); return value == null ? "-" : value.definition().rewardProfile(); }
     /** Compatibility diagnostic: this is current eligible audience size, not an opt-in participant count. */
     public int bingoParticipantCount() { BingoRun value = activeBingo.get(); return value == null ? 0 : eligiblePlayers(value.definition()).size(); }
@@ -523,6 +547,25 @@ public final class ChatEventManager {
     public List<String> bingoBoardPreview() {
         BingoRun value = activeBingo.get();
         return value == null ? List.of() : BingoRenderer.plainLines(value);
+    }
+
+    public boolean discordEventsEnabled() { return discordSettings != null && discordSettings.enabled(); }
+    public String discordTransport() { ChatEventDiscordPublisher value = discordPublisher; return value == null ? "NONE" : value.transportName(); }
+    public String discordTransportStatus() { ChatEventDiscordPublisher value = discordPublisher; return value == null ? "DISABLED" : value.transportStatus(); }
+    public boolean discordChannelConfigured() { ChatEventDiscordPublisher value = discordPublisher; return value != null && value.channelConfigured(); }
+    public String discordParticipation() { ChatEventDiscordPublisher value = discordPublisher; return value == null ? "DISPLAY_ONLY" : value.participationMode(); }
+    public String discordMessageState() { ChatEventDiscordPublisher value = discordPublisher; return value == null ? "NONE" : value.messageState(activeRunId()); }
+    public boolean discordPendingUpdate() { ChatEventDiscordPublisher value = discordPublisher; return value != null && value.pending(activeRunId()); }
+
+    public CompletableFuture<?> sendDiscordTest() {
+        ChatEventDiscordPublisher publisher = discordPublisher;
+        if (publisher == null) return CompletableFuture.failedFuture(new IllegalStateException("Discord event sync is unavailable"));
+        DiscordEventSettings settings = publisher.settings();
+        DiscordEventEmbed embed = new DiscordEventEmbed("PLEXONCHATS • TEST", "Discord Chat Events synchronization test. No event, reward or statistic was created.",
+                DiscordEventEmbed.COLOR_LIVE, List.of(DiscordEventEmbed.field("Transport", publisher.transportName(), true),
+                DiscordEventEmbed.field("Participation", settings.participationMode().name(), true)),
+                settings.embeds().showFooter() ? "PlexonCraft • Chat Events • TEST" : "", settings.embeds().timestamp(), "");
+        return publisher.test(embed);
     }
 
     public List<String> listStatus() {
@@ -615,6 +658,80 @@ public final class ChatEventManager {
         values.put("patterns", Component.text(patternsText(run.patterns())));
         values.put("next_draw", Component.text(formatSeconds(nextDrawMillis(run))));
         return values;
+    }
+
+    private void publishStandardStart(ChatEventEngine.Competition competition, String prompt) {
+        ChatEventDiscordPublisher publisher = discordPublisher;
+        DiscordEventSettings settings = discordSettings;
+        ChatEventConfig.Definition definition = competition.round().definition();
+        if (publisher == null || settings == null || !settings.publishes(definition.type())) return;
+        publisher.start(competition.round().runId(), StandardEventDiscordEmbedRenderer.live(definition,
+                typeName(definition.type()), prompt, rewardDescription(definition.rewardProfile()), settings));
+    }
+
+    private void publishStandardWinner(ChatEventEngine.Competition competition, String winner, String reward, String elapsed) {
+        ChatEventDiscordPublisher publisher = discordPublisher;
+        DiscordEventSettings settings = discordSettings;
+        ChatEventConfig.Definition definition = competition.round().definition();
+        if (publisher == null || settings == null || !settings.publishes(definition.type())) return;
+        publisher.terminal(competition.round().runId(), StandardEventDiscordEmbedRenderer.winner(definition,
+                typeName(definition.type()), winner, competition.round().canonicalAnswer(), reward, elapsed, "", settings));
+    }
+
+    private void publishStandardTimeout(ChatEventEngine.Competition competition) {
+        ChatEventDiscordPublisher publisher = discordPublisher;
+        DiscordEventSettings settings = discordSettings;
+        ChatEventConfig.Definition definition = competition.round().definition();
+        if (publisher == null || settings == null || !settings.publishes(definition.type())) return;
+        publisher.terminal(competition.round().runId(), StandardEventDiscordEmbedRenderer.timeout(definition,
+                typeName(definition.type()), competition.round().canonicalAnswer(), definition.revealAnswerOnTimeout(), settings));
+    }
+
+    private void publishStandardCancelled(ChatEventEngine.Competition competition) {
+        ChatEventDiscordPublisher publisher = discordPublisher;
+        DiscordEventSettings settings = discordSettings;
+        ChatEventConfig.Definition definition = competition.round().definition();
+        if (publisher == null || settings == null || !settings.publishes(definition.type())) return;
+        publisher.terminal(competition.round().runId(), StandardEventDiscordEmbedRenderer.cancelled(definition,
+                typeName(definition.type()), settings));
+    }
+
+    private void publishBingoStart(BingoRun run) {
+        ChatEventDiscordPublisher publisher = discordPublisher;
+        DiscordEventSettings settings = discordSettings;
+        if (publisher == null || settings == null || !settings.publishes(ChatEventEngine.Type.BINGO)) return;
+        publisher.start(run.runId(), BingoDiscordEmbedRenderer.live(run, rewardDescription(run.definition().rewardProfile()), settings));
+    }
+
+    private void publishBingoUpdate(BingoRun run) {
+        ChatEventDiscordPublisher publisher = discordPublisher;
+        DiscordEventSettings settings = discordSettings;
+        if (publisher == null || settings == null || !settings.publishes(ChatEventEngine.Type.BINGO) || !settings.bingo().updateOnDraw()) return;
+        publisher.update(run.runId(), BingoDiscordEmbedRenderer.live(run, rewardDescription(run.definition().rewardProfile()), settings));
+    }
+
+    private void publishBingoWinner(BingoRun run, com.antondev.chats.event.bingo.BingoBoard.Win win, String winner, String reward) {
+        ChatEventDiscordPublisher publisher = discordPublisher;
+        DiscordEventSettings settings = discordSettings;
+        if (publisher == null || settings == null || !settings.publishes(ChatEventEngine.Type.BINGO) || !settings.bingo().announceWinner()) return;
+        publisher.terminal(run.runId(), BingoDiscordEmbedRenderer.winner(run, win, winner, reward, settings));
+    }
+
+    private void publishBingoTerminal(BingoRun run, String state) {
+        ChatEventDiscordPublisher publisher = discordPublisher;
+        DiscordEventSettings settings = discordSettings;
+        if (publisher == null || settings == null || !settings.publishes(ChatEventEngine.Type.BINGO)) return;
+        BingoDiscordEmbedRenderer.Terminal terminal = switch (state) {
+            case "CANCELLED" -> BingoDiscordEmbedRenderer.Terminal.CANCELLED;
+            case "EXHAUSTED" -> BingoDiscordEmbedRenderer.Terminal.EXHAUSTED;
+            default -> BingoDiscordEmbedRenderer.Terminal.TIMED_OUT;
+        };
+        publisher.terminal(run.runId(), BingoDiscordEmbedRenderer.terminal(run, terminal, settings));
+    }
+
+    private String typeName(ChatEventEngine.Type type) {
+        ChatEventConfig current = config;
+        return current == null ? type.name() : current.presentation().typeName(type);
     }
 
     private Map<String, Component> withSeparator(Map<String, Component> values) {

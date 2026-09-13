@@ -1,10 +1,10 @@
-# PlexonChats Bingo — 3.5.0
+# PlexonChats Bingo — 3.6.0
 
-PlexonChats 3.5.0 replaces the 3.4.0 participant-card implementation with one server-authoritative shared Bingo board per active `BINGO` Chat Event.
+PlexonChats 3.6.0 preserves the accepted 3.5.0 server-authoritative shared Bingo board and adds stateful Discord embed synchronization on top of it. Discord never owns Bingo gameplay state.
 
 ## Authoritative model
 
-There is exactly one board and one draw history for the run. Players do not join, receive private cards, click cells, restore cards after reconnect, or manually mark anything.
+There is exactly one board and one draw history for the active run. Players do not join, receive private cards, click cells, restore cards after reconnect, or manually mark anything.
 
 Lifecycle:
 
@@ -43,11 +43,11 @@ The playable card has 25 unique values. Each column contains five values from it
 
 The row-3 N cell is a normal random value from `31–45`. There is no FREE tile.
 
-Unmarked cells are gray/white. A called card value is rendered as a bold green bracketed value such as `[07]`. The winning cells may use a distinct final highlight after the winner has been accepted.
+Unmarked cells are gray/white in Minecraft. A called card value is rendered as a bold green bracketed value such as `[07]`. Final winning cells may use a distinct highlight after the winner has been accepted.
 
 ## Draw engine
 
-At run creation PlexonChats creates and shuffles one server-owned `1..75` pool. Each number can be called at most once. The run retains the ordered draw history, remaining pool, last call, next-draw deadline, start time and terminal state.
+At run creation PlexonChats creates and shuffles one server-owned `1..75` pool. Each number can be called at most once. The run retains ordered draw history, remaining pool, last call, next-draw deadline, start time and terminal state.
 
 Default timing:
 
@@ -59,58 +59,26 @@ chat-events:
       interval-seconds: 5
 ```
 
-`interval-seconds` must be `1..300`; the first delay accepts `0..300`.
-
 The existing Chat Events coordinator advances Bingo. There is no independent global timer and no per-player scheduler.
 
 On each call PlexonChats:
 
 1. removes exactly one value from the remaining pool;
 2. appends it to authoritative draw history;
-3. automatically derives all marked cells from that history;
+3. derives all marked cells from that history;
 4. announces the called value;
-5. broadcasts the refreshed shared board to currently eligible players;
-6. optionally queues the Discord ANSI update.
+5. broadcasts the refreshed shared board to currently eligible Minecraft players;
+6. requests a coalesced Discord refresh when event synchronization is enabled.
 
 A called number that is not one of the card's 25 values remains a valid call but marks no cell.
 
-## Viewing the board
+## Viewing and claiming
 
-```text
-/bingo
-```
+`/bingo` privately renders the same authoritative board and includes last call, draw count, enabled patterns, next-call information and a claim reminder.
 
-When a Bingo run is active, `/bingo` privately renders the same authoritative board and includes the last call, draw count, enabled patterns, next-call information and a claim reminder. No GUI is required to play.
+Players may claim using `/bingo claim` or by typing the exact word `bingo` in accepted native Minecraft public chat. The public-chat form enters validation only after the synchronous cancellable `PlexonChatEvent` boundary. Console, Discord-origin messages, PMs, `/reply`, auto-messages, connection messages, broadcasts and synthetic/plugin messages cannot claim.
 
-## Claiming
-
-Players may claim using:
-
-```text
-/bingo claim
-```
-
-or by typing the exact word:
-
-```text
-bingo
-```
-
-in accepted native Minecraft public chat.
-
-The public-chat form enters Bingo validation only through PlexonChats' normal native public-chat route after the synchronous cancellable `PlexonChatEvent` boundary. A cancelled chat message cannot win. Console, Discord-origin messages, PMs, `/reply`, auto-messages, connection messages, broadcasts and synthetic/plugin messages cannot claim.
-
-A claim never proves victory by itself. The server checks:
-
-1. an active Bingo run exists;
-2. the player is currently eligible;
-3. the run is still `ACTIVE`;
-4. an enabled winning pattern is complete in authoritative draw history;
-5. the `ACTIVE → WON` transition can still be atomically acquired.
-
-Only the first successful atomic claim is the winner. Near-simultaneous claims cannot produce two winners.
-
-Invalid claims leave the event active and produce only concise feedback to the claimant.
+A claim never proves victory by itself. The server checks the active run, current eligibility, authoritative draw history and enabled patterns, then atomically acquires `ACTIVE → WON`. Only the first successful atomic claim is the winner.
 
 ## Winning patterns
 
@@ -124,26 +92,72 @@ chat-events:
       full-house: false
 ```
 
-- **Horizontal:** any one of the five rows has all five values called.
+- **Horizontal:** any one row has all five values called.
 - **Vertical:** any B/I/N/G/O column has all five values called.
-- **Diagonal:** either full five-cell diagonal has all values called.
+- **Diagonal:** either five-cell diagonal has all values called.
 - **Full House:** when enabled, all 25 card values must be called.
 
 Full House is an additional allowed pattern; it does not disable normal line wins.
 
 ## Exact-once completion
 
-Once a valid claimant acquires `ACTIVE → WON`, further draws stop immediately. One exact-once completion gate owns:
-
-- final board/winning-pattern presentation;
-- one global winner announcement;
-- one reward-profile execution;
-- one `chat-events.db` winner record keyed by run ID;
-- run closure.
-
-Bingo uses the existing Chat Event reward profiles and statistics database. It does not have a second reward or persistence engine.
+Once a valid claimant acquires `ACTIVE → WON`, further draws stop. One exact-once completion gate owns final board/winning-pattern presentation, one winner announcement, one reward-profile execution, one `chat-events.db` winner record keyed by run ID, and run closure.
 
 Timeout, administrator cancellation, plugin shutdown, Chat Events disable/reload, or draw-pool exhaustion produce no reward and no winner statistic.
+
+## Discord live embed
+
+Bingo now uses the generalized `chat-events.discord` publisher instead of the removed Bingo-only raw webhook sender.
+
+On start, one Discord embed is created and its message reference is retained. Subsequent draws edit that same message. Winner, timeout, cancellation and exhaustion edit it into terminal state.
+
+The Discord board is rendered from the exact active `BingoRun`:
+
+- no Discord-only board generation;
+- no FREE center;
+- board values match Minecraft;
+- drawn values derive from the same draw history;
+- last call and draw count derive from the same run;
+- winning cells derive from the server-accepted winning pattern.
+
+Example lifecycle titles:
+
+```text
+BINGO • LIVE BOARD
+BINGO • WINNER
+BINGO • TIMED OUT
+BINGO • CANCELLED
+BINGO • ENDED
+```
+
+Live draw updates are coalesced. Terminal state has priority, so a delayed old draw callback cannot overwrite a winner/cancel/timeout embed. If the active Discord message was deleted, one safe recreation may occur; the publisher does not retry forever.
+
+Discord transport failures cannot cancel a draw, change the board, select a winner, issue a reward or alter statistics.
+
+## Discord configuration
+
+Bingo-specific presentation switches live under the generalized section:
+
+```yaml
+chat-events:
+  discord:
+    enabled: false
+    transport: AUTO
+    participation-mode: DISPLAY_ONLY
+    events:
+      bingo:
+        enabled: true
+        show-live-board: true
+        update-on-draw: true
+        show-last-call: true
+        show-draw-count: true
+        show-patterns: true
+        announce-winner: true
+```
+
+`DISPLAY_ONLY` is mandatory in 3.6.0. Discord users may observe Bingo but cannot claim through Discord.
+
+The webhook URL, when configured as a transport/fallback, is secret configuration and is not printed by commands, diagnostics, GUI pages, player errors, embeds or normal status output.
 
 ## Commands and permissions
 
@@ -158,50 +172,26 @@ Timeout, administrator cancellation, plugin shutdown, Chat Events disable/reload
 - `plexonchats.events.bingo.play` — view/claim the live board.
 - `plexonchats.events.manage` — start/stop/status administration.
 
-Existing `/chat events ...` routes remain valid. `/chat events bingo board|claim|start|stop|status` delegates to the same manager; there is no competing Bingo management system.
-
-## Discord webhook synchronization
-
-Optional Bingo-only webhook configuration:
-
-```yaml
-chat-events:
-  bingo:
-    discord:
-      enabled: false
-      webhook-url: ""
-      username: "PlexonChats Bingo"
-      send-start: true
-      send-draws: true
-      send-win: true
-```
-
-Discord receives a monospaced fenced `ansi` board. Called card cells use ANSI bold green styling. Minecraft MiniMessage/legacy color strings are never assumed to render on Discord.
-
-Webhook I/O is submitted through a bounded asynchronous transport with short timeouts. HTTP callbacks never mutate gameplay state. Delivery failure cannot cancel draws/wins, duplicate rewards, block the Paper main thread or stall the coordinator.
-
-The webhook URL is secret configuration. It is not printed by diagnostics, status commands, GUI pages, player errors or normal logs.
+Existing `/chat events bingo board|claim|start|stop|status` routes delegate to the same manager. Discord synchronization administration is under `/chat events discord status|test` with `plexonchats.admin.events.discord`.
 
 ## Configuration migration
 
-3.5.0 advances configuration schema from v6 to v7. Before an upgraded config is written, PlexonChats creates:
+3.6.0 advances schema from v7 to v8. Before an upgraded config is written, PlexonChats creates:
 
 ```text
-config-before-v7-<timestamp>.yml
+config-before-v8-<timestamp>.yml
 ```
 
-Migration preserves administrator-owned `chat-events.events`. For explicit `type: BINGO` definitions it preserves identity/name/weight/cooldown/reward/minimum-online while converting the gameplay to shared-board defaults. A legacy nested Bingo timeout becomes event `duration-seconds` when no duration was already supplied.
+The former `chat-events.bingo.discord` values are mapped into `chat-events.discord` when possible. A valid legacy webhook URL is copied exactly to the new secret location and the obsolete duplicate subtree is removed. Administrator-owned event definitions, rewards, timing and enabled state remain intact.
 
-Obsolete active mechanics are removed/ignored, including join duration/minimum participants, participant cards, FREE center, click/manual marking and participant-only traffic.
-
-A non-Bingo event whose ID happens to be `bingo` is not reinterpreted; its explicit `type` remains authoritative.
+The previous v6 → v7 shared-board migration remains supported when upgrading from older installations.
 
 ## Runtime acceptance follow-up
 
-After GitHub source/release closure, production PlexonCraft validation should verify startup, `/bingo start`, the 6×6 board/header, normal-number center, automatic green marking, shared `/bingo` view, unique draws, false-claim rejection, first-valid-claim winner, exact-once reward/statistics, scheduled selection, Discord ANSI rendering when enabled, and no regression to normal chat/PM/other events/DiscordSRV.
+After GitHub source/release closure, production PlexonCraft validation should verify startup, Discord transport readiness, exactly one Math embed per run, same-message standard completion, exactly one Bingo embed, exact `/bingo` board parity, same-message draw updates, no FREE center, invalid-claim stability, winner same-message completion, exact-once reward/statistics, cancellation, fallback transport where configured, and secret non-disclosure.
 
-If no real host evidence was collected during release engineering, provenance remains:
+If no real host evidence is collected during release engineering, provenance remains:
 
 ```text
-runtime_deployment=FOLLOW_UP_NON_BLOCKING
+runtime_certification=FOLLOW_UP_REQUIRED
 ```

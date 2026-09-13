@@ -1,5 +1,36 @@
 # Changelog
 
+## 3.6.0 — Discord Chat Events embed synchronization
+
+### Added
+
+- Generalized Discord embed presentation for every current Chat Event type: TYPE, UNSCRAMBLE, MATH, TRIVIA, REVERSE and BINGO.
+- One-message event lifecycle with retained Discord message references: start creates, live state edits, and terminal state edits the same message.
+- DiscordSRV 1.30.5/JDA event transport plus generalized asynchronous webhook create/edit transport.
+- `AUTO` transport selection that prefers DiscordSRV and falls back to a configured webhook.
+- Live Bingo Discord renderer using the exact authoritative `BingoRun` board, draw history, last call, draw count and winning pattern.
+- Bounded/coalesced Discord publishing with stale-update suppression, per-run ordering, one safe deleted-message recreation and controlled shutdown.
+- `/chat events discord status` and `/chat events discord test` plus `plexonchats.admin.events.discord`.
+- Chat Events GUI/diagnostic visibility for safe event-sync state without exposing webhook credentials.
+- Regression tests for transport fallback, message reuse/recovery, asynchronous ordering, all implemented event renderers, Bingo authoritative-board rendering and admin secret safety.
+
+### Changed
+
+- Configuration schema advances from v7 to **v8** and introduces the generalized `chat-events.discord` section.
+- `participation-mode: DISPLAY_ONLY` is enforced for 3.6.0 so Discord remains presentation-only and Minecraft stays authoritative.
+- Bingo Discord updates now edit one persistent embed rather than sending a new raw/ANSI webhook message for every lifecycle change.
+- The old Bingo-only `BingoDiscordWebhook` runtime implementation is removed; webhook support now uses the reusable event transport.
+- Build/release provenance now anchors to stable `v3.5.0` / `4353eb80b8b1e3efaac4e5ab5f82ff6e6c3f1210` and records live runtime certification as `FOLLOW_UP_REQUIRED` until real PlexonCraft evidence exists.
+
+### Migration / compatibility
+
+- The v7 → v8 migrator maps existing Bingo webhook enabled state, URL, username and draw/winner delivery intent into the generalized event-sync schema where possible.
+- Valid webhook secrets are preserved exactly during migration and removed from the obsolete duplicate location.
+- Administrator-owned event definitions, reward profiles, timers, enabled states and unrelated configuration remain intact.
+- The earlier v6 → v7 shared-board Bingo migration remains supported for multi-generation upgrades.
+- Accepted 3.5.0 Bingo mechanics, exact-once rewards/statistics, normal chat routing, PM/reply, scheduled messages, DiscordSRV player-chat synchronization, `PlexonChatsAPI` and synchronous cancellable `PlexonChatEvent` remain unchanged.
+- Rollback: `v3.5.0` / `4353eb80b8b1e3efaac4e5ab5f82ff6e6c3f1210`.
+
 ## 3.5.0 — shared real-life Bingo mechanics correction
 
 ### Changed

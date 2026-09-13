@@ -1,6 +1,6 @@
-# Upgrading PlexonChats to 3.5.0
+# Upgrading PlexonChats to 3.6.0
 
-PlexonChats 3.5.0 is built directly on stable `v3.4.0` (`26cdf6fcff09d0443bbea64c5ec5ae3c4c1cd3a9`). The release changes Bingo gameplay and configuration schema; unrelated accepted chat/event systems remain in place.
+PlexonChats 3.6.0 is built directly on stable `v3.5.0` (`4353eb80b8b1e3efaac4e5ab5f82ff6e6c3f1210`). The release preserves accepted shared-board Bingo gameplay and adds generalized Discord Chat Event embed synchronization with configuration schema v8.
 
 ## Before upgrading
 
@@ -9,115 +9,110 @@ Keep a copy of the current plugin JAR, `plugins/PlexonChats/config.yml`, `player
 On the first successful configuration upgrade PlexonChats creates:
 
 ```text
-config-before-v7-<timestamp>.yml
+config-before-v8-<timestamp>.yml
 ```
 
 Do not replace a customized live configuration with the bundled file.
 
-## Schema v6 → v7
+## Schema v7 → v8
 
-The migrator preserves administrator-owned `chat-events.events`; it does not repopulate or replace that collection with fresh defaults.
+The migrator preserves administrator-owned:
 
-For existing explicit `type: BINGO` definitions, it preserves:
+- `chat-events.events` definitions and explicit event types;
+- event enabled state, weights, cooldowns, timing and eligibility;
+- `chat-events.reward-profiles`;
+- unrelated customized configuration.
 
-- event ID;
-- name;
-- enabled state;
-- weight;
-- cooldown;
-- reward-profile reference;
-- minimum-online value;
-- existing event duration where supplied.
-
-If a legacy nested Bingo timeout exists and no event duration is already defined, it becomes the event `duration-seconds`.
-
-The following 3.4 Bingo mechanics are removed/ignored:
-
-- opt-in join window and minimum participant count;
-- player-specific cards;
-- FREE center;
-- click/manual cell marking;
-- participant-only board/draw traffic;
-- reconnect card restoration.
-
-Legacy enabled win-pattern choices are mapped to horizontal/vertical/diagonal/Full House settings where available. Fresh defaults enable horizontal, vertical and diagonal and leave Full House disabled.
-
-A definition whose ID is `bingo` is not special. Only explicit `type: BINGO` definitions are migrated as Bingo. `type: TYPE` remains TYPE.
-
-## Behavioral change
-
-3.4.0:
+The former 3.5.0 Bingo-only Discord subtree:
 
 ```text
-JOINING -> per-player cards -> player cell marking -> winner
+chat-events.bingo.discord
 ```
 
-3.5.0:
+is generalized into:
 
 ```text
-STARTING -> one shared board -> automatic calls/marks -> first valid /bingo claim or public "bingo" -> winner
+chat-events.discord
 ```
 
-There is no FREE tile. The center is a normal `N` value from `31..45`.
+When present, the migrator carries forward the legacy enabled state, webhook URL, username, draw-update intent and winner-announcement intent where possible. A valid webhook URL is copied exactly into the new secret location and then removed from the obsolete duplicate subtree.
+
+The older v6 → v7 shared-Bingo migration remains part of the upgrader, so installations crossing multiple schema generations still receive the accepted 3.5.0 Bingo corrections before v8 is applied.
+
+## Discord behavioral change
+
+3.5.0 optional Bingo Discord output used a dedicated webhook and emitted separate raw/ANSI messages.
+
+3.6.0 uses one generalized presentation layer for all Chat Event types:
+
+```text
+START -> one Discord embed
+UPDATE -> edit the same message
+WIN/TIMEOUT/CANCEL -> edit the same message into terminal state
+```
+
+Bingo draw updates edit one persistent live embed rather than sending one new message per draw. DiscordSRV is preferred in `AUTO` mode when available; a configured webhook is the fallback.
+
+`participation-mode: DISPLAY_ONLY` is mandatory in 3.6.0. Discord messages do not count as event answers or Bingo claims.
 
 ## Commands
 
-Removed gameplay concepts:
+Existing player/event/Bingo commands remain valid. New safe administration routes are:
 
 ```text
-/chat events bingo join <run-id>
-/chat events bingo mark ...
-/chat events bingo participants
+/chat events discord status
+/chat events discord test
 ```
 
-Use:
+They require:
 
 ```text
-/bingo
-/bingo claim
-/bingo start
-/bingo stop
-/bingo status
+plexonchats.admin.events.discord
 ```
 
-Existing `/chat events` management remains available, including the compatible `bingo board|claim|start|stop|status` routes.
+The test route is presentation-only: it does not create a Chat Event, grant a reward or alter statistics.
 
-## Discord
+## Secret handling
 
-Bingo can optionally publish the shared board through a dedicated webhook configured under `chat-events.bingo.discord`. Leave `enabled: false` and `webhook-url: ""` to disable it. The existing DiscordSRV normal-chat integration is unchanged.
+Webhook URLs are credentials. The 3.6.0 command, GUI and diagnostics surfaces report only safe state such as transport, readiness and channel configuration. They never print the webhook URL.
 
 ## Validation after upgrade
 
-Before production promotion verify source/CI tests and the packaged JAR. On a real server, follow up with:
+Before production promotion verify the exact source/CI tests and packaged JAR. On a real Paper 26.2 / Java 25 server, follow up with:
 
-1. clean startup;
-2. `/bingo start` creates one active shared board;
-3. the display has `# B I N G O` plus five playable rows;
-4. center is a normal number;
-5. calls are unique and matching card cells auto-mark green/bracketed;
-6. `/bingo` displays the same board privately;
-7. false command/public claims are rejected;
-8. the first valid claim wins exactly once;
-9. reward/statistics increment once;
-10. scheduled Bingo remains selectable through the normal Chat Events scheduler;
-11. optional Discord ANSI output is readable;
-12. LOCAL/GLOBAL chat, PM/reply, other events and DiscordSRV remain unaffected.
+1. clean PlexonChats startup;
+2. Discord event transport reports ready;
+3. start a Math event and confirm exactly one Discord embed;
+4. answer correctly in Minecraft and confirm that same message becomes completed;
+5. start Bingo and confirm exactly one live Bingo embed;
+6. confirm the Discord board matches `/bingo` and contains no FREE center;
+7. confirm subsequent calls edit the same message and drawn values update;
+8. confirm an invalid early claim leaves the Discord state LIVE;
+9. obtain a valid pattern and claim in Minecraft;
+10. confirm the same Discord message becomes WINNER;
+11. confirm reward and statistics increment exactly once;
+12. start/cancel another event and confirm its original message becomes CANCELLED;
+13. test webhook fallback independently if configured;
+14. confirm no command/GUI/diagnostics output exposes the webhook URL;
+15. confirm LOCAL/GLOBAL chat, PM/reply and normal DiscordSRV player chat remain unaffected.
+
+Do not mark runtime certification PASS without this real-server evidence.
 
 ## Rollback
 
 Authoritative rollback target:
 
 ```text
-v3.4.0
-26cdf6fcff09d0443bbea64c5ec5ae3c4c1cd3a9
+v3.5.0
+4353eb80b8b1e3efaac4e5ab5f82ff6e6c3f1210
 ```
 
-To roll back after v7 migration:
+To roll back after v8 migration:
 
 1. stop the server/plugin cleanly;
-2. restore `PlexonChats-3.4.0.jar`;
-3. restore the matching pre-v7 `config-before-v7-*.yml` as `config.yml`;
+2. restore `PlexonChats-3.5.0.jar`;
+3. restore the matching pre-v8 `config-before-v8-*.yml` as `config.yml`;
 4. preserve `players.yml` and `chat-events.db` unless a separate operational reason requires restoring their backups;
-5. start the server and verify 3.4.0 behavior.
+5. start the server and verify 3.5.0 behavior.
 
-Because 3.4.0 expects schema v6 and the old Bingo model, restoring the pre-v7 config is part of rollback.
+Because 3.5.0 expects schema v7 and the old Bingo-specific Discord configuration location, restoring the pre-v8 config is part of rollback.

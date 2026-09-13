@@ -8,6 +8,7 @@ import org.bukkit.Registry;
 import org.bukkit.Sound;
 import org.bukkit.configuration.ConfigurationSection;
 
+import java.net.URI;
 import java.text.Normalizer;
 import java.util.HashSet;
 import java.util.List;
@@ -25,7 +26,7 @@ public final class ChatEventValidation {
 
     public static void validate(ConfigurationSection root) {
         if (root == null) throw invalid("chat-events", "must be a YAML section");
-        for (String key : List.of("scheduler", "defaults", "presentation", "bingo", "reward-profiles", "events", "sounds", "messages")) section(root, key);
+        for (String key : List.of("scheduler", "defaults", "presentation", "bingo", "discord", "reward-profiles", "events", "sounds", "messages")) section(root, key);
         long initial = root.getLong("scheduler.initial-delay-seconds", 180);
         long min = root.getLong("scheduler.min-interval-seconds", 600);
         long max = root.getLong("scheduler.max-interval-seconds", 1200);
@@ -44,6 +45,7 @@ public final class ChatEventValidation {
         validateMatching(defaults == null ? null : defaults.getConfigurationSection("matching"), "chat-events.defaults.matching");
         validatePresentation(root.getConfigurationSection("presentation"));
         validateBingo(root.getConfigurationSection("bingo"));
+        validateDiscord(root.getConfigurationSection("discord"));
         Set<String> rewardIds = validateRewards(root.getConfigurationSection("reward-profiles"));
         validateEvents(root.getConfigurationSection("events"), rewardIds, duration, defaultsMinOnline);
         for (String key : List.of("start", "win", "timeout")) validateSound(root, "sounds." + key + ".sound");
@@ -72,12 +74,51 @@ public final class ChatEventValidation {
         boolean any = bingo.getBoolean("winning.horizontal", true) || bingo.getBoolean("winning.vertical", true)
                 || bingo.getBoolean("winning.diagonal", true) || bingo.getBoolean("winning.full-house", false);
         if (!any) throw invalid("chat-events.bingo.winning", "must enable at least one winning pattern");
-        ConfigurationSection discord = bingo.getConfigurationSection("discord");
-        if (discord != null && discord.getBoolean("enabled", false) && discord.getString("webhook-url", "").isBlank()) {
-            throw invalid("chat-events.bingo.discord.webhook-url", "must be configured when Discord sync is enabled");
-        }
         ConfigurationSection messages = bingo.getConfigurationSection("messages");
         if (messages != null) for (String key : messages.getKeys(false)) validateLines(messages, key, "chat-events.bingo.messages." + key, false, true);
+    }
+
+    private static void validateDiscord(ConfigurationSection discord) {
+        if (discord == null) return;
+        String transport = discord.getString("transport", "AUTO").toUpperCase(Locale.ROOT);
+        if (!Set.of("AUTO", "DISCORDSRV", "WEBHOOK").contains(transport)) {
+            throw invalid("chat-events.discord.transport", "must be AUTO, DISCORDSRV or WEBHOOK");
+        }
+        String participation = discord.getString("participation-mode", "DISPLAY_ONLY").toUpperCase(Locale.ROOT);
+        if (!participation.equals("DISPLAY_ONLY")) {
+            throw invalid("chat-events.discord.participation-mode", "must be DISPLAY_ONLY in PlexonChats 3.6.0");
+        }
+        range(discord.getInt("updates.minimum-edit-interval-ms", 1000), 250, 30000,
+                "chat-events.discord.updates.minimum-edit-interval-ms");
+        if (discord.contains("updates.edit-existing-message") && !discord.getBoolean("updates.edit-existing-message", true)) {
+            throw invalid("chat-events.discord.updates.edit-existing-message", "must remain true in 3.6.0 to preserve one-message event lifecycle");
+        }
+        ConfigurationSection webhook = discord.getConfigurationSection("webhook");
+        boolean webhookEnabled = webhook != null && webhook.getBoolean("enabled", false);
+        String webhookUrl = webhook == null ? "" : webhook.getString("url", "");
+        if (webhookEnabled && webhookUrl.isBlank()) throw invalid("chat-events.discord.webhook.url", "must be configured when webhook transport is enabled");
+        if (!webhookUrl.isBlank()) validateWebhookUrl(webhookUrl);
+        if (discord.getBoolean("enabled", false) && transport.equals("WEBHOOK") && !webhookEnabled) {
+            throw invalid("chat-events.discord.webhook.enabled", "must be true when transport is WEBHOOK");
+        }
+        ConfigurationSection events = discord.getConfigurationSection("events");
+        if (events != null) {
+            for (String key : events.getKeys(false)) {
+                try { ChatEventEngine.Type.valueOf(key.toUpperCase(Locale.ROOT)); }
+                catch (IllegalArgumentException ex) { throw invalid("chat-events.discord.events." + key, "uses an unknown event type"); }
+            }
+        }
+    }
+
+    private static void validateWebhookUrl(String value) {
+        try {
+            URI uri = URI.create(value);
+            if (!Set.of("http", "https").contains(uri.getScheme()) || uri.getHost() == null || uri.getHost().isBlank()) {
+                throw new IllegalArgumentException();
+            }
+        } catch (RuntimeException ex) {
+            throw invalid("chat-events.discord.webhook.url", "is not a valid http(s) webhook URL");
+        }
     }
 
     private static Set<String> validateRewards(ConfigurationSection rewards) {

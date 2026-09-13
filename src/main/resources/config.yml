@@ -1,10 +1,10 @@
 # ============================================================
-# PlexonChats 3.5 — Shared Claim-Based Bingo / Paper 26.2 / Java 25
+# PlexonChats 3.6 — Discord Chat Events / Paper 26.2 / Java 25
 # All admin-owned text supports MiniMessage. UTF-8, spaces only.
 # /chat reload validates the complete candidate before activation.
 # Existing settings are retained, with a backup before schema migration.
 # ============================================================
-config-version: 7
+config-version: 8
 server-name: "Plexon"
 default-channel: LOCAL
 
@@ -255,7 +255,7 @@ gui:
         action: NONE
         material: CLOCK
         name: "<aqua><bold>Runtime status</bold></aqua>"
-        lore: ["<gray>Scheduler <dark_gray>› <white>{events_scheduler}", "<gray>Active <dark_gray>› <white>{events_active}", "<gray>Definitions <dark_gray>› <white>{events_count}"]
+        lore: ["<gray>Scheduler <dark_gray>› <white>{events_scheduler}", "<gray>Active <dark_gray>› <white>{events_active}", "<gray>Definitions <dark_gray>› <white>{events_count}", "", "<gray>Discord <dark_gray>› <white>{events_discord}", "<gray>Transport <dark_gray>› <white>{events_discord_transport}", "<gray>Message <dark_gray>› <white>{events_discord_message}"]
       pause:
         slot: 14
         action: PAUSE_CHAT_EVENTS
@@ -459,6 +459,45 @@ chat-events:
       - "<gray>No reward or win statistic was issued.</gray>"
       - "{separator}"
 
+  # Discord is presentation-only in v3.6.0. Minecraft remains authoritative for answers, claims and rewards.
+  discord:
+    enabled: false
+    transport: AUTO
+    channel-id: ""
+    participation-mode: DISPLAY_ONLY
+    webhook:
+      enabled: false
+      url: ""
+      username: "PlexonChats Events"
+    embeds:
+      timestamp: true
+      show-reward: true
+      show-winner-avatar: false
+      show-event-type: true
+      show-footer: true
+    updates:
+      edit-existing-message: true
+      minimum-edit-interval-ms: 1000
+    events:
+      bingo:
+        enabled: true
+        show-live-board: true
+        update-on-draw: true
+        show-last-call: true
+        show-draw-count: true
+        show-patterns: true
+        announce-winner: true
+      math:
+        enabled: true
+      type:
+        enabled: true
+      unscramble:
+        enabled: true
+      trivia:
+        enabled: true
+      reverse:
+        enabled: true
+
   bingo:
     enabled: true
     draw:
@@ -469,13 +508,6 @@ chat-events:
       vertical: true
       diagonal: true
       full-house: false
-    discord:
-      enabled: false
-      webhook-url: ""
-      username: "PlexonChats Bingo"
-      send-start: true
-      send-draws: true
-      send-win: true
     messages:
       start:
         - "{separator}"
@@ -606,7 +638,7 @@ chat-events:
       volume: 1.0
       pitch: 1.0
 
-  # Legacy one-line keys remain accepted for compatibility. Structured v7 cards are authoritative.
+  # Legacy one-line keys remain accepted for compatibility. Structured v8 cards are authoritative.
   messages:
     prefix: "<bold><gradient:#ffd66b:#ff9f43>Chat Event</gradient></bold> <dark_gray>» "
     started: "{prompt}"

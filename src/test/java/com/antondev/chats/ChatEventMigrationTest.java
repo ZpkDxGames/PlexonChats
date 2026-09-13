@@ -34,7 +34,7 @@ class ChatEventMigrationTest extends PluginTestBase {
         YamlConfiguration defaults = defaults();
 
         assertTrue(ConfigUpgrader.upgrade(current, defaults));
-        assertEquals(7, current.getInt("config-version"));
+        assertEquals(8, current.getInt("config-version"));
         assertEquals("TYPE", current.getString("chat-events.events.bingo.type"));
         assertEquals("My Legacy Bingo Word", current.getString("chat-events.events.bingo.name"));
         assertEquals(9, current.getInt("chat-events.events.bingo.weight"));
@@ -95,7 +95,7 @@ class ChatEventMigrationTest extends PluginTestBase {
                 """);
 
         assertTrue(ConfigUpgrader.upgrade(current, defaults()));
-        assertEquals(7, current.getInt("config-version"));
+        assertEquals(8, current.getInt("config-version"));
         assertEquals("Saturday Bingo", current.getString("chat-events.events.my-bingo.name"));
         assertEquals("BINGO", current.getString("chat-events.events.my-bingo.type"));
         assertEquals(17, current.getInt("chat-events.events.my-bingo.weight"));
@@ -117,6 +117,53 @@ class ChatEventMigrationTest extends PluginTestBase {
         assertTrue(current.getBoolean("chat-events.bingo.winning.vertical"));
         assertTrue(current.getBoolean("chat-events.bingo.winning.diagonal"));
         assertTrue(current.getBoolean("chat-events.bingo.winning.full-house"));
+    }
+
+    @Test void v7BingoWebhookMigratesToGeneralDiscordSchemaWithoutLeakingOrDeletingSecret() throws Exception {
+        YamlConfiguration current = new YamlConfiguration();
+        current.loadFromString("""
+                config-version: 7
+                chat-events:
+                  bingo:
+                    discord:
+                      enabled: true
+                      webhook-url: "https://discord.com/api/webhooks/123456/very-secret-token"
+                      username: "Legacy Bingo"
+                      send-start: true
+                      send-draws: false
+                      send-win: true
+                  reward-profiles:
+                    custom:
+                      economy: { enabled: false, amount: 0 }
+                      plexonkeys: { enabled: false, tier: BASIC, amount: 0 }
+                      console-commands: []
+                  events:
+                    custom:
+                      enabled: true
+                      name: "Custom"
+                      type: TYPE
+                      weight: 3
+                      cooldown-seconds: 99
+                      reward-profile: custom
+                      values: ["keep"]
+                      prompt: "Type {value}"
+                """);
+
+        assertTrue(ConfigUpgrader.upgrade(current, defaults()));
+        assertEquals(8, current.getInt("config-version"));
+        assertTrue(current.getBoolean("chat-events.discord.enabled"));
+        assertEquals("WEBHOOK", current.getString("chat-events.discord.transport"));
+        assertEquals("DISPLAY_ONLY", current.getString("chat-events.discord.participation-mode"));
+        assertTrue(current.getBoolean("chat-events.discord.webhook.enabled"));
+        assertEquals("https://discord.com/api/webhooks/123456/very-secret-token", current.getString("chat-events.discord.webhook.url"));
+        assertEquals("Legacy Bingo", current.getString("chat-events.discord.webhook.username"));
+        assertTrue(current.getBoolean("chat-events.discord.events.bingo.enabled"));
+        assertFalse(current.getBoolean("chat-events.discord.events.bingo.update-on-draw"));
+        assertTrue(current.getBoolean("chat-events.discord.events.bingo.announce-winner"));
+        assertFalse(current.contains("chat-events.bingo.discord"), "legacy duplicate secret location must be removed");
+        assertEquals("TYPE", current.getString("chat-events.events.custom.type"));
+        assertEquals(3, current.getInt("chat-events.events.custom.weight"));
+        assertFalse(current.contains("chat-events.events.type-rush"), "administrator-owned event collection must not be repopulated");
     }
 
     private YamlConfiguration defaults() throws Exception {
