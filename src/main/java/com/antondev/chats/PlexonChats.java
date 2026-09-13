@@ -8,6 +8,7 @@ import com.antondev.chats.chat.ChatListener;
 import com.antondev.chats.chat.ChatManager;
 import com.antondev.chats.chat.ConnectionMessageListener;
 import com.antondev.chats.command.*;
+import com.antondev.chats.config.ChatEventDataStore;
 import com.antondev.chats.config.ConfigManager;
 import com.antondev.chats.diagnostics.ChatDiagnostics;
 import com.antondev.chats.event.ChatEventManager;
@@ -43,6 +44,7 @@ import org.bukkit.scheduler.BukkitTask;
 public class PlexonChats extends JavaPlugin implements Listener {
     private final ChatDiagnostics diagnostics = new ChatDiagnostics();
     private ConfigManager configManager;
+    private ChatEventDataStore chatEventData;
     private PreferenceStore preferences;
     private ChatManager chatManager;
     private PlaceholderHandler placeholderHandler;
@@ -67,6 +69,7 @@ public class PlexonChats extends JavaPlugin implements Listener {
             coreBridge = CoreBridgeFactory.resolve(this);
             coreBridge.registerStarting();
             configManager = new ConfigManager(this);
+            chatEventData = new ChatEventDataStore(this);
             preferences = new PreferenceStore(this);
             placeholderApiService = new PlaceholderApiService(this);
             playerInfoService = new PlayerInfoService(this);
@@ -103,7 +106,8 @@ public class PlexonChats extends JavaPlugin implements Listener {
             diagnostics.recordReload(true, "startup revision " + configManager.revision());
             publishCoreHealth();
             getLogger().info("PlexonChats " + getPluginMeta().getVersion()
-                    + " enabled. Mode: " + coreBridge.mode() + ", DiscordSRV: " + discordBridge.status());
+                    + " enabled. Mode: " + coreBridge.mode() + ", DiscordSRV: " + discordBridge.status()
+                    + ", data.yml schema: " + chatEventData.schemaVersion());
         } catch (Exception | LinkageError exception) {
             diagnostics.recordReload(false, "startup " + exception.getClass().getSimpleName());
             if (coreBridge != null) coreBridge.markFailed("Chat startup failed: " + exception.getClass().getSimpleName());
@@ -119,7 +123,7 @@ public class PlexonChats extends JavaPlugin implements Listener {
         if (executor instanceof TabCompleter completer) command.setTabCompleter(completer);
     }
 
-    /** Apply a validated configuration as one runtime generation; rollback to the previous snapshot on refresh failure. */
+    /** Apply validated config.yml + data.yml as one runtime generation; rollback keeps the previous live state. */
     public boolean reloadPlugin() {
         ConfigManager.Snapshot previous = configManager.snapshot();
         if (!configManager.loadConfig()) {
@@ -158,8 +162,9 @@ public class PlexonChats extends JavaPlugin implements Listener {
         discordBridge.close();
         discordBridge = DiscordBridge.create(this);
         itemPreviewManager.cleanupExpired();
+        chatEventData.reload();
         publishCoreHealth();
-        // Keep this last: a failed earlier refresh leaves an active Chat Event untouched when the config rollback occurs.
+        // Keep Chat Events last: a failed earlier refresh leaves the current competition untouched for rollback.
         chatEvents.reload();
     }
 
@@ -167,57 +172,40 @@ public class PlexonChats extends JavaPlugin implements Listener {
     public void onOptionalPluginEnable(PluginEnableEvent event) {
         String name = event.getPlugin().getName();
         if (name.equals("DiscordSRV")) {
-            discordBridge.close();
-            discordBridge = DiscordBridge.create(this);
-        } else if (name.equals("PlaceholderAPI")) {
-            placeholderApiService.refreshHooks();
-        } else if (name.equals("Vault") || name.equals("LuckPerms") || name.equals("PlexonRanks")) {
-            playerInfoService.refreshHooks();
-            if (name.equals("Vault") && chatEvents != null) chatEvents.refreshIntegrations();
-        } else if (name.equals("PlexonKeys")) {
-            if (chatEvents != null) chatEvents.refreshIntegrations();
-        } else return;
+            discordBridge.close(); discordBridge = DiscordBridge.create(this);
+        } else if (name.equals("PlaceholderAPI")) placeholderApiService.refreshHooks();
+        else if (name.equals("Vault") || name.equals("LuckPerms") || name.equals("PlexonRanks")) {
+            playerInfoService.refreshHooks(); if (name.equals("Vault") && chatEvents != null) chatEvents.refreshIntegrations();
+        } else if (name.equals("PlexonKeys")) { if (chatEvents != null) chatEvents.refreshIntegrations(); }
+        else return;
         publishCoreHealth();
     }
 
     @EventHandler
     public void onOptionalPluginDisable(PluginDisableEvent event) {
         String name = event.getPlugin().getName();
-        if (name.equals("DiscordSRV")) {
-            discordBridge.close();
-            discordBridge = DiscordBridge.inactive("NOT_INSTALLED");
-        } else if (name.equals("PlaceholderAPI")) {
-            placeholderApiService.refreshHooks();
-        } else if (name.equals("Vault") || name.equals("LuckPerms") || name.equals("PlexonRanks")) {
-            playerInfoService.refreshHooks();
-            if (name.equals("Vault") && chatEvents != null) chatEvents.refreshIntegrations();
-        } else if (name.equals("PlexonKeys")) {
-            if (chatEvents != null) chatEvents.refreshIntegrations();
-        } else return;
+        if (name.equals("DiscordSRV")) { discordBridge.close(); discordBridge = DiscordBridge.inactive("NOT_INSTALLED"); }
+        else if (name.equals("PlaceholderAPI")) placeholderApiService.refreshHooks();
+        else if (name.equals("Vault") || name.equals("LuckPerms") || name.equals("PlexonRanks")) {
+            playerInfoService.refreshHooks(); if (name.equals("Vault") && chatEvents != null) chatEvents.refreshIntegrations();
+        } else if (name.equals("PlexonKeys")) { if (chatEvents != null) chatEvents.refreshIntegrations(); }
+        else return;
         publishCoreHealth();
     }
 
-    @EventHandler
-    public void onPlayerJoin(PlayerJoinEvent event) {
-        if (chatEvents != null) chatEvents.onPlayerJoin(event.getPlayer());
-    }
+    @EventHandler public void onPlayerJoin(PlayerJoinEvent event) { if (chatEvents != null) chatEvents.onPlayerJoin(event.getPlayer()); }
 
     public void publishCoreHealth() {
         if (coreBridge == null || configManager == null || api == null) return;
         List<String> degraded = new ArrayList<>();
         if (configManager.bool("integrations.discordsrv.enabled", false)) {
-            String discord = discordBridge.status();
-            if (!discord.equals("ACTIVE")) degraded.add("DiscordSRV " + discord);
+            String discord = discordBridge.status(); if (!discord.equals("ACTIVE")) degraded.add("DiscordSRV " + discord);
         }
         String readyDetail = "Chat routing, preferences, schedulers, GUI, API and optional bridges operational";
-        if (degraded.isEmpty()) coreBridge.markReady(readyDetail);
-        else coreBridge.markDegraded(readyDetail + "; " + String.join(", ", degraded));
+        if (degraded.isEmpty()) coreBridge.markReady(readyDetail); else coreBridge.markDegraded(readyDetail + "; " + String.join(", ", degraded));
     }
 
-    @Override public void onDisable() {
-        shutdown();
-        getLogger().info("PlexonChats disabled.");
-    }
+    @Override public void onDisable() { shutdown(); getLogger().info("PlexonChats disabled."); }
 
     private void shutdown() {
         if (cleanupTask != null) { cleanupTask.cancel(); cleanupTask = null; }
@@ -237,6 +225,7 @@ public class PlexonChats extends JavaPlugin implements Listener {
     public boolean cleanupTaskActive() { return cleanupTask != null && !cleanupTask.isCancelled(); }
     public ChatDiagnostics getDiagnostics() { return diagnostics; }
     public ConfigManager getConfigManager() { return configManager; }
+    public ChatEventDataStore getChatEventData() { return chatEventData; }
     public PreferenceStore getPreferences() { return preferences; }
     public ChatManager getChatManager() { return chatManager; }
     public PlaceholderHandler getPlaceholderHandler() { return placeholderHandler; }

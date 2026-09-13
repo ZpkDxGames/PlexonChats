@@ -7,66 +7,75 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class BingoAudienceTest extends PluginTestBase {
-    @Test void sharedBoardStartsImmediatelyForAllEligiblePlayersWithoutJoinPhase() throws Exception {
+    @Test void adminStartCreatesLobbyAndNeverAutoEnrollsObservers() throws Exception {
         var first = player("First");
         var second = player("Second");
         var observer = player("Observer");
         configureBingo();
 
-        assertEquals(ChatEventManager.StartStatus.STARTED, plugin.getChatEvents().start("bingo-classic"));
+        assertEquals(ChatEventManager.StartStatus.STARTED, plugin.getChatEvents().startBingo());
         assertEquals("BINGO", plugin.getChatEvents().activeType());
-        assertEquals("ACTIVE", plugin.getChatEvents().bingoPhase());
-        assertEquals(3, plugin.getChatEvents().bingoParticipantCount(), "diagnostic audience is eligibility-based, never opt-in participants");
+        assertEquals("LOBBY", plugin.getChatEvents().bingoPhase());
+        assertEquals("ADMIN", plugin.getChatEvents().bingoSource());
+        assertEquals(0, plugin.getChatEvents().bingoParticipantCount());
+        assertFalse(plugin.getChatEvents().showBingoBoard(observer));
+
+        assertEquals(BingoRun.JoinStatus.JOINED, plugin.getChatEvents().bingoJoin(first).status());
+        assertEquals(BingoRun.JoinStatus.ALREADY_JOINED, plugin.getChatEvents().bingoJoin(first).status());
+        assertEquals(BingoRun.JoinStatus.JOINED, plugin.getChatEvents().bingoJoin(second).status());
+        assertEquals(2, plugin.getChatEvents().bingoParticipantCount());
+        assertTrue(plugin.getChatEvents().showBingoBoard(first));
+        assertTrue(plugin.getChatEvents().showBingoBoard(second));
+        assertFalse(plugin.getChatEvents().showBingoBoard(observer), "non-participant must never see another player's card");
         assertEquals(6, plugin.getChatEvents().bingoBoardPreview().size());
-        assertEquals("# |  B |  I |  N |  G |  O", plugin.getChatEvents().bingoBoardPreview().getFirst());
-
-        assertNotNull(first.nextComponentMessage(), "eligible player receives start/board traffic");
-        assertNotNull(second.nextComponentMessage(), "eligible player receives start/board traffic");
-        assertNotNull(observer.nextComponentMessage(), "eligible observer sees the same shared board without joining");
-        drain(first); drain(second); drain(observer);
-
-        assertTrue(plugin.getChatEvents().showBingoBoard(observer));
-        assertNotNull(observer.nextComponentMessage(), "/bingo surface is available to every eligible player");
-        drain(observer);
-
-        tickSecond();
-        assertEquals(1, plugin.getChatEvents().bingoDrawCount());
-        String firstDraw = next(first);
-        String secondDraw = next(second);
-        String observerDraw = next(observer);
-        assertNotNull(firstDraw);
-        assertNotNull(secondDraw);
-        assertNotNull(observerDraw, "draw traffic is shared, not participant-only");
     }
 
-    @Test void invalidCommandAndPublicChatClaimsDoNotEndTheRun() throws Exception {
-        var player = player("Claimant");
+    @Test void adminFastStartWorksWithExactlyOneExplicitParticipant() throws Exception {
+        var only = player("OnlyPlayer");
         configureBingo();
-        assertEquals(ChatEventManager.StartStatus.STARTED, plugin.getChatEvents().start("bingo-classic"));
-        drain(player);
+        assertEquals(ChatEventManager.StartStatus.STARTED, plugin.getChatEvents().startBingo());
+        assertEquals(BingoRun.JoinStatus.JOINED, plugin.getChatEvents().bingoJoin(only).status());
+        assertEquals(ChatEventManager.StartStatus.STARTED, plugin.getChatEvents().startBingoNow());
+        assertEquals("ACTIVE", plugin.getChatEvents().bingoPhase());
+        assertEquals(1, plugin.getChatEvents().bingoParticipantCount());
+        assertEquals(1, plugin.getChatEvents().bingoOnlineParticipantCount());
+    }
 
-        assertEquals(BingoRun.ClaimStatus.NO_PATTERN, plugin.getChatEvents().bingoClaim(player).status());
-        assertEquals("ACTIVE", plugin.getChatEvents().bingoPhase());
-        assertFalse(plugin.getChatEvents().acceptAnswer(player, ChatChannel.GLOBAL, "bingo"));
-        assertEquals("ACTIVE", plugin.getChatEvents().bingoPhase());
-        assertFalse(plugin.getChatEvents().acceptAnswer(player, ChatChannel.GLOBAL, "not bingo"));
-        assertEquals("ACTIVE", plugin.getChatEvents().bingoPhase());
+    @Test void fastStartWithZeroParticipantsDoesNotAutoEnrollAnyone() throws Exception {
+        player("Observer");
+        configureBingo();
+        assertEquals(ChatEventManager.StartStatus.STARTED, plugin.getChatEvents().startBingo());
+        assertEquals(ChatEventManager.StartStatus.NOT_ENOUGH_PLAYERS, plugin.getChatEvents().startBingoNow());
+        assertEquals("LOBBY", plugin.getChatEvents().bingoPhase());
+        assertEquals(0, plugin.getChatEvents().bingoParticipantCount());
+    }
+
+    @Test void leavingLobbyRemovesCardWhileLeavingActiveForfeits() throws Exception {
+        var player = player("Leaver");
+        configureBingo();
+        assertEquals(ChatEventManager.StartStatus.STARTED, plugin.getChatEvents().startBingo());
+        assertEquals(BingoRun.JoinStatus.JOINED, plugin.getChatEvents().bingoJoin(player).status());
+        assertEquals(BingoRun.LeaveStatus.LEFT, plugin.getChatEvents().bingoLeave(player));
+        assertEquals(0, plugin.getChatEvents().bingoParticipantCount());
+        assertEquals(BingoRun.JoinStatus.JOINED, plugin.getChatEvents().bingoJoin(player).status());
+        assertEquals(ChatEventManager.StartStatus.STARTED, plugin.getChatEvents().startBingoNow());
+        assertEquals(BingoRun.LeaveStatus.FORFEITED, plugin.getChatEvents().bingoLeave(player));
+        assertFalse(plugin.getChatEvents().showBingoBoard(player));
     }
 
     private void configureBingo() throws Exception {
+        data(yaml -> {
+            yaml.set("scheduler.enabled", false);
+            yaml.set("minigames.bingo-classic.cooldown-seconds", 0);
+            yaml.set("minigames.bingo-classic.min-online", 1);
+            yaml.set("minigames.bingo-classic.duration-seconds", 30);
+            yaml.set("minigames.bingo-classic.lobby.admin-minimum-participants", 1);
+            yaml.set("minigames.bingo-classic.draws.first-call-delay-seconds", 0);
+            yaml.set("minigames.bingo-classic.draws.interval-seconds", 1);
+        });
         config(yaml -> {
-            yaml.set("chat-events.scheduler.enabled", false);
-            yaml.set("chat-events.events.bingo-classic.cooldown-seconds", 0);
-            yaml.set("chat-events.events.bingo-classic.min-online", 1);
-            yaml.set("chat-events.events.bingo-classic.duration-seconds", 30);
-            yaml.set("chat-events.bingo.draw.first-delay-seconds", 0);
-            yaml.set("chat-events.bingo.draw.interval-seconds", 1);
             yaml.set("chat-events.reward-profiles.epic.economy.enabled", false);
             yaml.set("chat-events.reward-profiles.epic.plexonkeys.enabled", false);
         });
-    }
-
-    private void tickSecond() {
-        for (int tick = 0; tick < 20; tick++) server.getScheduler().performOneTick();
     }
 }

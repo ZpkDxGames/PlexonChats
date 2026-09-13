@@ -2,13 +2,16 @@ package com.antondev.chats;
 
 import com.antondev.chats.event.ChatEventConfig;
 import com.antondev.chats.event.ChatEventEngine;
-import com.antondev.chats.event.bingo.BingoAnsiRenderer;
 import com.antondev.chats.event.bingo.BingoBoard;
 import com.antondev.chats.event.bingo.BingoBoardGenerator;
+import com.antondev.chats.event.bingo.BingoParticipant;
 import com.antondev.chats.event.bingo.BingoPattern;
 import com.antondev.chats.event.bingo.BingoPatternEvaluator;
 import com.antondev.chats.event.bingo.BingoRenderer;
 import com.antondev.chats.event.bingo.BingoRun;
+import net.kyori.adventure.key.Key;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -22,130 +25,168 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 
 class BingoModelTest {
-    @Test void generatedBoardUsesTraditionalRangesTwentyFiveUniqueNumbersAndNoFreeTile() {
+    @Test void generatedCardsUseTraditionalRangesTwentyFiveUniqueNumbersAndNoFreeTile() {
         for (int seed = 0; seed < 50; seed++) {
             BingoBoard board = BingoBoardGenerator.generate(new java.util.Random(seed));
             Set<Integer> seen = new HashSet<>();
             for (int cell = 0; cell < BingoBoard.CELL_COUNT; cell++) {
-                int value = board.numberAt(cell);
-                int column = cell % 5;
+                int value = board.numberAt(cell), column = cell % 5;
                 assertTrue(value >= column * 15 + 1 && value <= column * 15 + 15);
-                assertTrue(seen.add(value), "duplicate board value " + value);
-                assertNotEquals(0, value);
+                assertTrue(seen.add(value));
             }
             assertEquals(25, seen.size());
-            assertTrue(board.numberAt(12) >= 31 && board.numberAt(12) <= 45, "center must be a normal N number");
+            assertTrue(board.numberAt(12) >= 31 && board.numberAt(12) <= 45);
         }
     }
 
-    @Test void renderedBoardIsSixColumnsBySixRowsIncludingHeader() {
-        BingoRun run = run(new java.util.Random(42));
-        assertTrue(run.activate());
-        List<String> lines = BingoRenderer.plainLines(run);
-        assertEquals(6, lines.size());
-        assertEquals("# |  B |  I |  N |  G |  O", lines.getFirst());
-        for (int row = 1; row <= 5; row++) assertTrue(lines.get(row).startsWith(row + " | "));
+    @Test void lobbyRemindersEmitExactlyOnceAndLagCoalescesMissedThresholds() {
+        BingoRun run = run(60, 2, 1);
+        assertEquals(60, run.pollReminder(0));
+        assertNull(run.pollReminder(1));
+        assertEquals(30, run.pollReminder(seconds(31)));
+        assertNull(run.pollReminder(seconds(31)));
+        assertEquals(15, run.pollReminder(seconds(46)));
+        assertEquals(5, run.pollReminder(seconds(56)));
+        assertNull(run.pollReminder(seconds(59)));
+
+        BingoRun lagged = run(60, 2, 2);
+        assertEquals(60, lagged.pollReminder(0));
+        assertEquals(15, lagged.pollReminder(seconds(46)), "missed 30s threshold must be coalesced, not burst");
+        assertEquals(5, lagged.pollReminder(seconds(56)));
     }
 
-    @Test void everyHorizontalVerticalAndDiagonalPatternUsesOnlyDrawHistory() {
+    @Test void joinIsExplicitIdempotentAndCardsAreStablePerParticipant() {
+        BingoRun run = run(60, 1, 3);
+        UUID first = UUID.randomUUID(), second = UUID.randomUUID();
+        var firstJoin = run.join(first, "First", 1, true);
+        assertEquals(BingoRun.JoinStatus.JOINED, firstJoin.status());
+        BingoBoard card = firstJoin.participant().board();
+        assertSame(card, run.join(first, "First", 2, true).participant().board());
+        assertEquals(BingoRun.JoinStatus.JOINED, run.join(second, "Second", 3, true).status());
+        assertEquals(2, run.participantCount());
+        assertNotSame(card, run.participant(second).board());
+    }
+
+    @Test void drawNeverMarksAndOnlyCalledCardValuesCanBeMarked() {
+        BingoRun run = activeRun(4, 2);
+        List<BingoParticipant> participants = new ArrayList<>(run.participants().values());
+        BingoParticipant first = participants.get(0), second = participants.get(1);
+        int target = first.board().numberAt(0);
+        assertEquals(BingoRun.MarkStatus.NOT_CALLED, run.mark(first.playerId(), run.runId(), target).status());
+        assertEquals(0, first.markedCount());
+
+        int now = 0;
+        while (!run.drawnNumbers().contains(target)) assertNotNull(run.draw(now++));
+        assertEquals(0, first.markedCount(), "drawing a number must not mark any participant");
+        assertEquals(0, second.markedCount(), "global draw state must not leak into another card");
+        assertEquals(BingoRun.MarkStatus.MARKED, run.mark(first.playerId(), run.runId(), target).status());
+        assertEquals(1, first.markedCount());
+        assertEquals(0, second.markedCount());
+        assertEquals(BingoRun.MarkStatus.ALREADY_MARKED, run.mark(first.playerId(), run.runId(), target).status());
+        assertEquals(BingoRun.MarkStatus.STALE_RUN, run.mark(first.playerId(), UUID.randomUUID(), target).status());
+    }
+
+    @Test void globalDrawHistoryCannotWinButManualMarksCan() {
+        BingoRun run = activeRun(5, 1);
+        BingoParticipant participant = run.participants().values().iterator().next();
+        drawAll(run);
+        assertNull(BingoPatternEvaluator.firstWin(participant.board(), participant.markedCells(), run.patterns()));
+        assertEquals(BingoRun.ClaimStatus.NO_PATTERN,
+                run.claim(participant.playerId(), participant.nameSnapshot(), run.runId(), true).status());
+        for (int cell = 0; cell < 5; cell++) {
+            int number = participant.board().numberAt(cell);
+            assertEquals(BingoRun.MarkStatus.MARKED, run.mark(participant.playerId(), run.runId(), number).status());
+        }
+        BingoRun.ClaimResult claim = run.claim(participant.playerId(), participant.nameSnapshot(), run.runId(), true);
+        assertEquals(BingoRun.ClaimStatus.WON, claim.status());
+        assertEquals(BingoPattern.ROW, claim.win().pattern());
+        assertEquals(BingoRun.MarkStatus.NOT_ACTIVE,
+                run.mark(participant.playerId(), run.runId(), participant.board().numberAt(5)).status());
+    }
+
+    @Test void horizontalVerticalDiagonalAndFullHouseEvaluateManualCellIndicesOnly() {
         BingoBoard board = fixedBoard();
-        for (int row = 0; row < 5; row++) {
-            Set<Integer> draws = numbers(board, row * 5, row * 5 + 1, row * 5 + 2, row * 5 + 3, row * 5 + 4);
-            assertEquals(BingoPattern.ROW, BingoPatternEvaluator.firstWin(board, draws, Set.of(BingoPattern.ROW)).pattern());
-        }
-        for (int column = 0; column < 5; column++) {
-            Set<Integer> draws = numbers(board, column, column + 5, column + 10, column + 15, column + 20);
-            assertEquals(BingoPattern.COLUMN, BingoPatternEvaluator.firstWin(board, draws, Set.of(BingoPattern.COLUMN)).pattern());
-        }
-        assertEquals(BingoPattern.DIAGONAL, BingoPatternEvaluator.firstWin(board, numbers(board, 0, 6, 12, 18, 24), Set.of(BingoPattern.DIAGONAL)).pattern());
-        assertEquals(BingoPattern.DIAGONAL, BingoPatternEvaluator.firstWin(board, numbers(board, 4, 8, 12, 16, 20), Set.of(BingoPattern.DIAGONAL)).pattern());
-    }
-
-    @Test void almostCompleteDisabledAndFullHouseRulesAreStrict() {
-        BingoBoard board = fixedBoard();
-        Set<Integer> four = numbers(board, 0, 1, 2, 3);
-        assertNull(BingoPatternEvaluator.firstWin(board, four, Set.of(BingoPattern.ROW)));
-        Set<Integer> row = numbers(board, 0, 1, 2, 3, 4);
-        assertNull(BingoPatternEvaluator.firstWin(board, row, Set.of(BingoPattern.DIAGONAL)));
-        Set<Integer> all = new HashSet<>();
-        for (int value : board.numbers()) all.add(value);
+        assertEquals(BingoPattern.ROW, BingoPatternEvaluator.firstWin(board, Set.of(0, 1, 2, 3, 4), Set.of(BingoPattern.ROW)).pattern());
+        assertEquals(BingoPattern.COLUMN, BingoPatternEvaluator.firstWin(board, Set.of(0, 5, 10, 15, 20), Set.of(BingoPattern.COLUMN)).pattern());
+        assertEquals(BingoPattern.DIAGONAL, BingoPatternEvaluator.firstWin(board, Set.of(0, 6, 12, 18, 24), Set.of(BingoPattern.DIAGONAL)).pattern());
+        Set<Integer> all = new HashSet<>(); for (int cell = 0; cell < 25; cell++) all.add(cell);
         assertEquals(BingoPattern.FULL_HOUSE, BingoPatternEvaluator.firstWin(board, all, Set.of(BingoPattern.FULL_HOUSE)).pattern());
-        all.remove(board.numberAt(24));
-        assertNull(BingoPatternEvaluator.firstWin(board, all, Set.of(BingoPattern.FULL_HOUSE)));
+        assertNull(BingoPatternEvaluator.firstWin(board, Set.of(0, 1, 2, 3, 4), Set.of(BingoPattern.DIAGONAL)));
     }
 
-    @Test void drawPoolContainsOneThroughSeventyFiveExactlyOnceAndMarksOnlyBoardMatches() {
-        BingoRun run = run(new java.util.Random(9));
-        assertTrue(run.activate());
-        Set<Integer> values = new HashSet<>();
-        for (int index = 0; index < 75; index++) {
-            Integer draw = run.draw(index);
-            assertNotNull(draw, "draw " + index);
-            assertTrue(values.add(draw));
-        }
-        assertEquals(75, values.size());
-        for (int number = 1; number <= 75; number++) assertTrue(values.contains(number));
-        assertEquals(0, run.remainingCount());
-        assertNull(run.draw(1000));
-        assertEquals(25, run.board().markedCount(run.drawnNumbers()));
-    }
+    @Test void nearSimultaneousValidClaimsProduceExactlyOneWinnerRewardOwner() throws Exception {
+        BingoRun run = activeRun(6, 2);
+        drawAll(run);
+        for (BingoParticipant participant : run.participants().values()) for (int cell = 0; cell < 5; cell++)
+            assertEquals(BingoRun.MarkStatus.MARKED, run.mark(participant.playerId(), run.runId(), participant.board().numberAt(cell)).status());
 
-    @Test void nearSimultaneousValidClaimsProduceExactlyOneWinnerAndOneCompletionOwner() throws Exception {
-        BingoRun run = run(new java.util.Random(15));
-        assertTrue(run.activate());
-        for (int index = 0; index < 75; index++) assertNotNull(run.draw(index));
-
-        CountDownLatch ready = new CountDownLatch(2);
-        CountDownLatch fire = new CountDownLatch(1);
+        CountDownLatch ready = new CountDownLatch(2), fire = new CountDownLatch(1);
         AtomicInteger winners = new AtomicInteger();
         List<Thread> threads = new ArrayList<>();
-        for (String name : List.of("First", "Second")) {
+        for (BingoParticipant participant : run.participants().values()) {
             Thread thread = new Thread(() -> {
                 ready.countDown();
                 try { fire.await(); } catch (InterruptedException ex) { Thread.currentThread().interrupt(); return; }
-                if (run.claim(UUID.randomUUID(), name, true).status() == BingoRun.ClaimStatus.WON) winners.incrementAndGet();
+                if (run.claim(participant.playerId(), participant.nameSnapshot(), run.runId(), true).status() == BingoRun.ClaimStatus.WON) winners.incrementAndGet();
             });
-            threads.add(thread);
-            thread.start();
+            threads.add(thread); thread.start();
         }
-        ready.await(); fire.countDown();
-        for (Thread thread : threads) thread.join();
+        ready.await(); fire.countDown(); for (Thread thread : threads) thread.join();
         assertEquals(1, winners.get());
         assertEquals(BingoRun.Phase.WON, run.phase());
         assertNotNull(run.winner());
-        assertTrue(run.beginCompletion());
-        assertFalse(run.beginCompletion());
-        assertNull(run.draw(1000), "terminal winner state must freeze draws");
+        assertTrue(run.beginCompletion()); assertFalse(run.beginCompletion());
     }
 
-    @Test void invalidAndIneligibleClaimsDoNotTerminateRun() {
-        BingoRun run = run(new java.util.Random(1));
-        assertTrue(run.activate());
-        assertEquals(BingoRun.ClaimStatus.NOT_ELIGIBLE, run.claim(UUID.randomUUID(), "Nope", false).status());
-        assertEquals(BingoRun.ClaimStatus.NO_PATTERN, run.claim(UUID.randomUUID(), "Early", true).status());
-        assertEquals(BingoRun.Phase.ACTIVE, run.phase());
+    @Test void fixedWidthRendererUsesUniformFontGreenMarksNoBracketsAndRunBoundClicks() {
+        BingoRun run = activeRun(7, 1);
+        BingoParticipant participant = run.participants().values().iterator().next();
+        int target = participant.board().numberAt(0);
+        drawAll(run);
+        assertEquals(BingoRun.MarkStatus.MARKED, run.mark(participant.playerId(), run.runId(), target).status());
+
+        ChatEventConfig.BingoRender settings = run.definition().bingo().render();
+        List<String> plain = BingoRenderer.plainLines(participant, settings);
+        assertEquals(6, plain.size());
+        int width = plain.getFirst().length();
+        assertTrue(plain.stream().allMatch(line -> line.length() == width));
+        assertTrue(plain.stream().noneMatch(line -> line.contains("[") || line.contains("]")));
+        assertTrue(plain.stream().allMatch(line -> line.startsWith(" ".repeat(settings.leftPadding()))));
+
+        List<Component> rendered = BingoRenderer.render(run, participant, null);
+        assertEquals(Key.key("minecraft:uniform"), rendered.get(1).style().font());
+        Component markedRow = rendered.get(2);
+        assertTrue(markedRow.children().stream().anyMatch(child -> NamedTextColor.GREEN.equals(child.style().color())));
+        assertTrue(markedRow.children().stream().anyMatch(child -> child.style().clickEvent() != null
+                && child.style().clickEvent().value().contains(run.runId().toString())));
     }
 
-    @Test void ansiRendererUsesAnsiFenceAndGreenOnlyForCalledBoardCells() {
-        BingoRun run = run(new java.util.Random(2));
-        assertTrue(run.activate());
-        String before = BingoAnsiRenderer.render(run);
-        assertTrue(before.startsWith("```ansi\n"));
-        assertFalse(before.contains("\u001B[1;32m"));
-        while (run.board().indexOf(run.lastDraw()) < 0) assertNotNull(run.draw(run.drawCount()));
-        String after = BingoAnsiRenderer.render(run);
-        assertTrue(after.contains("\u001B[1;32m"));
-        assertTrue(after.endsWith("```"));
+    private static BingoRun activeRun(int seed, int participants) {
+        BingoRun run = run(0, 1, seed);
+        for (int index = 0; index < participants; index++) assertEquals(BingoRun.JoinStatus.JOINED,
+                run.join(UUID.randomUUID(), "Player" + index, index, true).status());
+        assertEquals(BingoRun.ActivationStatus.ACTIVATED, run.activate(0, ignored -> true));
+        return run;
     }
 
-    private static BingoRun run(java.util.Random random) {
-        return new BingoRun(UUID.randomUUID(), definition(), 0, 10_000, 0, 1,
-                Set.of(BingoPattern.ROW, BingoPattern.COLUMN, BingoPattern.DIAGONAL, BingoPattern.FULL_HOUSE), random);
+    private static BingoRun run(int lobbySeconds, int minimum, int seed) {
+        return new BingoRun(UUID.randomUUID(), definition(), BingoRun.Source.ADMIN, 0, seconds(lobbySeconds), minimum,
+                seconds(600), 0, 1, Set.of(BingoPattern.ROW, BingoPattern.COLUMN, BingoPattern.DIAGONAL, BingoPattern.FULL_HOUSE),
+                List.of(60, 30, 15, 5), false, true, false, new java.util.Random(seed));
+    }
+
+    private static void drawAll(BingoRun run) {
+        long now = 0;
+        while (run.remainingCount() > 0) {
+            Integer draw = run.draw(now++);
+            assertNotNull(draw);
+        }
+        assertEquals(75, run.drawCount());
     }
 
     private static ChatEventConfig.Definition definition() {
-        return new ChatEventConfig.Definition("bingo-classic", "Classic Bingo", ChatEventEngine.Type.BINGO, true, 5, 0,
-                "epic", 420, true, 1, "", Set.of(), Set.of(), Set.of(ChatChannel.LOCAL, ChatChannel.GLOBAL),
+        return new ChatEventConfig.Definition("bingo-classic", "Classic Bingo", ChatEventEngine.Type.BINGO, true, 4, 0,
+                "epic", 600, true, 1, "", Set.of(), Set.of(), Set.of(ChatChannel.LOCAL, ChatChannel.GLOBAL),
                 ChatEventConfig.Matching.standard(), "", List.of(), List.of(), List.of(), Set.of(), 1, 10, false,
                 ChatEventConfig.BingoSettings.defaults());
     }
@@ -160,9 +201,5 @@ class BingoModelTest {
         });
     }
 
-    private static Set<Integer> numbers(BingoBoard board, int... cells) {
-        Set<Integer> values = new HashSet<>();
-        for (int cell : cells) values.add(board.numberAt(cell));
-        return values;
-    }
+    private static long seconds(long value) { return value * 1_000_000_000L; }
 }

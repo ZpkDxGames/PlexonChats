@@ -1,0 +1,150 @@
+# PlexonChats 4.0 gameplay/minigame data.
+# Presentation, reward profile bodies and integration credentials remain in config.yml.
+schema-version: 1
+enabled: true
+
+scheduler:
+  enabled: true
+  initial-delay-seconds: 300
+  min-interval-seconds: 900
+  max-interval-seconds: 1800
+  minimum-online: 2
+  pause-when-empty: true
+
+randomizer:
+  mode: WEIGHTED
+  avoid-immediate-repeat: true
+  history-size: 2
+
+minigames:
+  type-rush:
+    type: TYPE
+    name: "Type Rush"
+    enabled: true
+    weight: 12
+    cooldown-seconds: 1800
+    duration-seconds: 30
+    reward-profile: basic
+    accepted-channels: [LOCAL, GLOBAL]
+    values: ["bingo", "plexon", "diamond", "redstone"]
+    prompt: "<gray>Type <yellow>\"{value}\"</yellow> before anyone else!</gray>"
+
+  unscramble:
+    type: UNSCRAMBLE
+    name: "Unscramble"
+    enabled: true
+    weight: 10
+    cooldown-seconds: 1800
+    duration-seconds: 30
+    reward-profile: rare
+    accepted-channels: [LOCAL, GLOBAL]
+    words: ["diamond", "redstone", "village", "elytra", "netherite"]
+    prompt: "<gray>Unscramble <aqua>{scrambled}</aqua>!</gray>"
+
+  math-normal:
+    type: MATH
+    name: "Quick Math"
+    enabled: true
+    weight: 10
+    cooldown-seconds: 1200
+    duration-seconds: 30
+    reward-profile: rare
+    accepted-channels: [LOCAL, GLOBAL]
+    operations: [ADD, SUBTRACT, MULTIPLY]
+    min-operand: 2
+    max-operand: 25
+    allow-negative-result: false
+    prompt: "<gray>What's <aqua>{expression}</aqua>?</gray>"
+
+  math-hard:
+    type: MATH
+    name: "Hard Math"
+    enabled: true
+    weight: 4
+    cooldown-seconds: 3600
+    duration-seconds: 30
+    reward-profile: epic
+    accepted-channels: [LOCAL, GLOBAL]
+    operations: [MULTIPLY, DIVIDE]
+    min-operand: 8
+    max-operand: 75
+    allow-negative-result: false
+    prompt: "<gray>Solve <red>{expression}</red>!</gray>"
+
+  trivia:
+    type: TRIVIA
+    name: "Trivia"
+    enabled: true
+    weight: 6
+    cooldown-seconds: 2400
+    duration-seconds: 30
+    reward-profile: rare
+    accepted-channels: [LOCAL, GLOBAL]
+    entries:
+      - question: "Which dimension contains End Cities?"
+        accepted-answers: ["the end", "end"]
+      - question: "Which ore is required to craft an enchanting table?"
+        accepted-answers: ["diamond", "diamonds"]
+    prompt: "<gray>{question}</gray>"
+
+  reverse:
+    type: REVERSE
+    name: "Reverse"
+    enabled: true
+    weight: 6
+    cooldown-seconds: 1800
+    duration-seconds: 30
+    reward-profile: basic
+    accepted-channels: [LOCAL, GLOBAL]
+    values: ["craft", "redstone", "plexon", "diamond"]
+    prompt: "<gray>Reverse <aqua>{value}</aqua>!</gray>"
+
+  bingo-classic:
+    type: BINGO
+    name: "Classic Bingo"
+    enabled: true
+    weight: 4
+    cooldown-seconds: 3600
+    duration-seconds: 600
+    reward-profile: epic
+    min-online: 2
+    accepted-channels: [LOCAL, GLOBAL]
+
+    lobby:
+      duration-seconds: 60
+      reminders-seconds: [60, 30, 15, 5]
+      minimum-participants: 2
+      admin-minimum-participants: 1
+      admin-lobby-seconds: 15
+      admin-fast-lobby-seconds: 5
+      allow-late-join: false
+      require-online-at-start: true
+      disconnect-policy: KEEP
+
+    card:
+      free-center: false
+
+    draws:
+      first-call-delay-seconds: 5
+      interval-seconds: 8
+      range-min: 1
+      range-max: 75
+
+    winning:
+      horizontal: true
+      vertical: true
+      diagonal: true
+      full-house: false
+
+    render:
+      font: "minecraft:uniform"
+      left-padding: 3
+      cell-width: 4
+      column-gap: 1
+      show-border: false
+      show-last-call: true
+      show-draw-count: true
+      on-join: true
+      on-start: true
+      after-successful-mark: true
+      on-every-draw: false
