@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -34,7 +35,7 @@ class ChatEventMigrationTest extends PluginTestBase {
         YamlConfiguration defaults = defaults();
 
         assertTrue(ConfigUpgrader.upgrade(current, defaults));
-        assertEquals(8, current.getInt("config-version"));
+        assertEquals(9, current.getInt("config-version"));
         assertEquals("TYPE", current.getString("chat-events.events.bingo.type"));
         assertEquals("My Legacy Bingo Word", current.getString("chat-events.events.bingo.name"));
         assertEquals(9, current.getInt("chat-events.events.bingo.weight"));
@@ -95,7 +96,7 @@ class ChatEventMigrationTest extends PluginTestBase {
                 """);
 
         assertTrue(ConfigUpgrader.upgrade(current, defaults()));
-        assertEquals(8, current.getInt("config-version"));
+        assertEquals(9, current.getInt("config-version"));
         assertEquals("Saturday Bingo", current.getString("chat-events.events.my-bingo.name"));
         assertEquals("BINGO", current.getString("chat-events.events.my-bingo.type"));
         assertEquals(17, current.getInt("chat-events.events.my-bingo.weight"));
@@ -150,7 +151,7 @@ class ChatEventMigrationTest extends PluginTestBase {
                 """);
 
         assertTrue(ConfigUpgrader.upgrade(current, defaults()));
-        assertEquals(8, current.getInt("config-version"));
+        assertEquals(9, current.getInt("config-version"));
         assertTrue(current.getBoolean("chat-events.discord.enabled"));
         assertEquals("WEBHOOK", current.getString("chat-events.discord.transport"));
         assertEquals("DISPLAY_ONLY", current.getString("chat-events.discord.participation-mode"));
@@ -164,6 +165,36 @@ class ChatEventMigrationTest extends PluginTestBase {
         assertEquals("TYPE", current.getString("chat-events.events.custom.type"));
         assertEquals(3, current.getInt("chat-events.events.custom.weight"));
         assertFalse(current.contains("chat-events.events.type-rush"), "administrator-owned event collection must not be repopulated");
+    }
+
+    @Test void v8StockPresentationMigratesToCompactHoverAwareCards() throws Exception {
+        YamlConfiguration current = defaults();
+        current.set("config-version", 8);
+
+        assertTrue(ConfigUpgrader.upgrade(current, defaults()));
+        assertEquals(9, current.getInt("config-version"));
+        assertTrue(current.getStringList("chat-events.presentation.start").stream().anyMatch(line -> line.contains("✦ {event_type}")));
+        assertTrue(current.getStringList("chat-events.presentation.start").stream().anyMatch(line -> line.contains("<hover:show_text:")));
+        assertFalse(current.getStringList("chat-events.presentation.start").stream().anyMatch(line -> line.contains("CHAT EVENT")));
+        assertTrue(current.getStringList("chat-events.presentation.winner").stream().anyMatch(line -> line.contains("✔ {event_type} COMPLETE")));
+        assertTrue(current.getStringList("chat-events.presentation.timeout").stream().anyMatch(line -> line.contains("⌛ {event_type} EXPIRED")));
+        assertTrue(current.getStringList("chat-events.presentation.cancelled").stream().anyMatch(line -> line.contains("✕ {event_type} CANCELLED")));
+        assertTrue(current.getStringList("chat-events.bingo.messages.start").stream().anyMatch(line -> line.contains("✦ BINGO")));
+        assertEquals("<gray>Rearrange:</gray> <aqua>{scrambled}</aqua>", current.getString("chat-events.events.unscramble.prompt"));
+        assertEquals("<gray>Solve:</gray> <aqua>{expression}</aqua>", current.getString("chat-events.events.math-normal.prompt"));
+    }
+
+    @Test void v8CustomizedPresentationAndPromptRemainAdministratorOwned() throws Exception {
+        YamlConfiguration current = defaults();
+        current.set("config-version", 8);
+        List<String> customStart = List.of("<red>MY CUSTOM EVENT</red>", "{prompt}");
+        current.set("chat-events.presentation.start", customStart);
+        current.set("chat-events.events.unscramble.prompt", "<blue>Custom {scrambled}</blue>");
+
+        assertTrue(ConfigUpgrader.upgrade(current, defaults()));
+        assertEquals(9, current.getInt("config-version"));
+        assertEquals(customStart, current.getStringList("chat-events.presentation.start"));
+        assertEquals("<blue>Custom {scrambled}</blue>", current.getString("chat-events.events.unscramble.prompt"));
     }
 
     private YamlConfiguration defaults() throws Exception {
