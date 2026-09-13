@@ -1,6 +1,7 @@
 package com.antondev.chats.config;
 
 import com.antondev.chats.PlexonChats;
+import net.kyori.adventure.key.Key;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -168,11 +169,19 @@ public final class ChatEventDataStore {
         List<Integer> reminders = lobby.getIntegerList("reminders-seconds");
         if (reminders.isEmpty() || reminders.stream().anyMatch(value -> value <= 0 || value > duration) || reminders.stream().distinct().count() != reminders.size()) throw new IllegalArgumentException("Bingo reminder thresholds are invalid");
         if (lobby.getInt("minimum-participants", 2) < 1 || lobby.getInt("admin-minimum-participants", 1) < 1) throw new IllegalArgumentException("Bingo minimum participants must be at least one");
-        if (game.getInt("draws.first-call-delay-seconds", 5) < 0 || game.getInt("draws.interval-seconds", 8) <= 0) throw new IllegalArgumentException("Bingo draw timing is invalid");
+        int firstDelay = game.getInt("draws.first-call-delay-seconds", 5);
+        int interval = game.getInt("draws.interval-seconds", 5);
+        if (firstDelay < 0 || firstDelay > 300 || interval < 1 || interval > 300) throw new IllegalArgumentException("Bingo draw timing is invalid");
         boolean pattern = game.getBoolean("winning.horizontal", true) || game.getBoolean("winning.vertical", true) || game.getBoolean("winning.diagonal", true) || game.getBoolean("winning.full-house", false);
         if (!pattern) throw new IllegalArgumentException("Bingo requires at least one winning pattern");
-        int padding = game.getInt("render.left-padding", 3), width = game.getInt("render.cell-width", 4), gap = game.getInt("render.column-gap", 1);
+        int padding = game.getInt("render.left-padding", 2), width = game.getInt("render.cell-width", 4), gap = game.getInt("render.column-gap", 0);
         if (padding < 0 || padding > 16 || width < 2 || width > 12 || gap < 0 || gap > 8) throw new IllegalArgumentException("Bingo table dimensions are out of bounds");
+        String style = game.getString("render.style", "TABLE").toUpperCase(Locale.ROOT);
+        if (!Set.of("TABLE", "COMPACT").contains(style)) throw new IllegalArgumentException("Bingo render.style must be TABLE or COMPACT");
+        String font = game.getString("render.font", "minecraft:uniform");
+        if (font == null || font.isBlank()) throw new IllegalArgumentException("Bingo render.font must not be blank");
+        try { Key.key(font); }
+        catch (RuntimeException ex) { throw new IllegalArgumentException("Bingo render.font must be a valid Adventure key", ex); }
     }
 
     private static void mergeMissing(YamlConfiguration target, YamlConfiguration source) {
