@@ -1,5 +1,40 @@
 # Changelog
 
+## 3.4.0 — enhanced Chat Events, persistent statistics and interactive Bingo
+
+### Added
+
+- Configurable multi-line Chat Event cards for start/winner/timeout/cancelled states with 0–3 blank lines before/after and configurable event-type display names.
+- Dedicated `chat-events.db` SQLite persistence for total, type, definition and immutable winner-history statistics.
+- Cache-backed `/chat events stats`, `/chat events stats <player>`, `/chat events leaderboard`, GUI statistics and database diagnostics.
+- Real `BINGO` event type with explicit JOINING/ACTIVE/WON/TIMED_OUT/CANCELLED lifecycle.
+- Server-generated 75-ball 5×5 Bingo cards, optional FREE center, unique draw pool and participant-only draw traffic.
+- Clickable Bingo cells with server-side run/participant/board/draw validation and reconnect card restoration.
+- Bingo patterns: `ROW`, `COLUMN`, `DIAGONAL`, `FOUR_CORNERS`, `FULL_HOUSE`.
+- Multi-page `/chat events` GUI: live dashboard, paginated definitions, event details, reward inspection, Bingo and statistics.
+- Schema v6 migration and fresh `type-rush` + real `bingo-classic` defaults.
+- Bundled SQLite JDBC dependency for standalone statistics storage.
+
+### Reliability / security
+
+- Winner statistics share the established exact-run boundary; unique `run_id` persistence prevents duplicate callbacks from double-counting.
+- SQLite operations use one controlled executor and never query/write the ordinary public-chat hot path.
+- Bingo has no per-player repeating scheduler; the one Chat Events coordinator owns draw progression.
+- Bingo client clicks never provide trusted number authority: the server resolves the clicked cell from the participant's stored board and validates that it was drawn.
+- Non-participants receive no repeated Bingo number or board traffic.
+- Near-simultaneous final Bingo marks can produce only one winner and one completion side-effect claim.
+- GUI holders retain config revision protection and add page/run context so stale inventories cannot affect a newer run.
+- Dynamic event/player values remain component data and are never reparsed as trusted MiniMessage.
+- Timeout/cancel/insufficient-participant paths create no reward and no win statistic.
+
+### Migration / compatibility
+
+- Configuration schema advances from v5 to v6 with `config-before-v6-*` backup.
+- `chat-events.events` remains administrator-owned during migration. A legacy TYPE event whose ID is `bingo` is preserved exactly and never silently reinterpreted as BINGO.
+- Existing LOCAL/GLOBAL routing, PM/reply, item display, mentions, auto-messages, DiscordSRV isolation, `PlexonChatsAPI`, synchronous cancellable `PlexonChatEvent`, transactional reload and exact-one reward semantics remain intact.
+- Paper 26.2, Java 25 and PlexonCore 2.0.4 compile boundary remain authoritative.
+- Rollback: `v3.3.0` / `8b79743c5e8f1751031b0988ff927fdc17fa93ed`.
+
 ## 3.3.0 — configurable Chat Events
 
 ### Added
