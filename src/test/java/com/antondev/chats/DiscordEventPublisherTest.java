@@ -12,7 +12,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -25,8 +24,8 @@ class DiscordEventPublisherTest extends PluginTestBase {
         try (ChatEventDiscordPublisher publisher = new ChatEventDiscordPublisher(plugin, settings(true), transport)) {
             UUID run = UUID.randomUUID();
             publisher.start(run, embed("LIVE"));
-            await(() -> transport.creates.get() == 1);
-            assertEquals("ACTIVE", publisher.messageState(run));
+            await(() -> "ACTIVE".equals(publisher.messageState(run)));
+            assertEquals(1, transport.creates.get());
 
             publisher.update(run, embed("DRAW 1"));
             await(() -> transport.edits.size() >= 1);
