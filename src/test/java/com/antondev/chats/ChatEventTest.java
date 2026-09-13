@@ -6,7 +6,6 @@ import com.antondev.chats.event.ChatEventManager;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
 
-import java.nio.file.Files;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -22,11 +21,15 @@ class ChatEventTest extends PluginTestBase {
         assertTrue(plugin.getChatEvents().enabled());
         assertTrue(plugin.getChatEvents().schedulerEnabled());
         assertTrue(plugin.getChatEvents().taskActive());
-        assertEquals(6, plugin.getChatEvents().configuredCount());
+        assertEquals(7, plugin.getChatEvents().configuredCount());
         ChatEventConfig snapshot = ChatEventConfig.read(plugin.getConfigManager().section("chat-events"));
         assertEquals(Set.of(ChatEventEngine.Type.TYPE, ChatEventEngine.Type.UNSCRAMBLE, ChatEventEngine.Type.MATH,
-                        ChatEventEngine.Type.TRIVIA, ChatEventEngine.Type.REVERSE),
+                        ChatEventEngine.Type.TRIVIA, ChatEventEngine.Type.REVERSE, ChatEventEngine.Type.BINGO),
                 snapshot.definitions().values().stream().map(ChatEventConfig.Definition::type).collect(java.util.stream.Collectors.toSet()));
+        assertTrue(snapshot.definitions().containsKey("type-rush"));
+        assertTrue(snapshot.definitions().containsKey("bingo-classic"));
+        assertEquals(ChatEventEngine.Type.TYPE, snapshot.definitions().get("type-rush").type());
+        assertEquals(ChatEventEngine.Type.BINGO, snapshot.definitions().get("bingo-classic").type());
     }
 
     @Test void matchingDefaultsAreDeterministicAndDataOnly() {
@@ -38,17 +41,22 @@ class ChatEventTest extends PluginTestBase {
         assertNotEquals(ChatEventEngine.normalize("BINGO", sensitive), ChatEventEngine.normalize("bingo", sensitive));
     }
 
-    @Test void allGeneratorsProduceBoundedPlayableRounds() {
+    @Test void ordinaryGeneratorsProducePlayableRoundsWhileBingoUsesItsDedicatedSession() {
         ChatEventConfig config = ChatEventConfig.read(plugin.getConfigManager().section("chat-events"));
         java.util.Random random = new java.util.Random(42);
         for (ChatEventConfig.Definition definition : config.definitions().values()) {
-            ChatEventEngine.Round round = ChatEventEngine.generators().get(definition.type()).generate(definition, random);
+            if (definition.type() == ChatEventEngine.Type.BINGO) {
+                assertNull(ChatEventEngine.generators().get(ChatEventEngine.Type.BINGO), "Bingo must not be represented as a typed-answer generator");
+                assertTrue(definition.bingo().enabled());
+                continue;
+            }
+            ChatEventEngine.Generator generator = ChatEventEngine.generators().get(definition.type());
+            assertNotNull(generator, definition.type().name());
+            ChatEventEngine.Round round = generator.generate(definition, random);
             assertEquals(definition, round.definition());
             assertFalse(round.acceptedAnswers().isEmpty());
             assertTrue(round.acceptedAnswers().stream().noneMatch(String::isBlank));
-            if (definition.type() == ChatEventEngine.Type.UNSCRAMBLE) {
-                assertFalse(round.promptValues().get("scrambled").isBlank());
-            }
+            if (definition.type() == ChatEventEngine.Type.UNSCRAMBLE) assertFalse(round.promptValues().get("scrambled").isBlank());
             if (definition.type() == ChatEventEngine.Type.MATH) {
                 assertNotNull(round.promptValues().get("expression"));
                 assertDoesNotThrow(() -> Long.parseLong(round.canonicalAnswer()));
@@ -57,8 +65,7 @@ class ChatEventTest extends PluginTestBase {
     }
 
     @Test void exactOnceWinnerTransitionSurvivesNearSimultaneousCorrectAnswers() throws Exception {
-        ChatEventConfig config = ChatEventConfig.read(plugin.getConfigManager().section("chat-events"));
-        ChatEventConfig.Definition definition = config.definitions().get("bingo");
+        ChatEventConfig.Definition definition = typeRush();
         ChatEventEngine.Round round = new ChatEventEngine.Round(UUID.randomUUID(), definition, java.util.Map.of("value", "bingo"), List.of("bingo"));
         UUID first = UUID.randomUUID();
         UUID second = UUID.randomUUID();
@@ -90,11 +97,11 @@ class ChatEventTest extends PluginTestBase {
             yaml.set("chat.cooldown-milliseconds", 0);
             yaml.set("chat.duplicate-window-seconds", 0);
             yaml.set("chat-events.scheduler.enabled", false);
-            yaml.set("chat-events.events.bingo.values", List.of("bingo"));
-            yaml.set("chat-events.events.bingo.cooldown-seconds", 0);
+            yaml.set("chat-events.events.type-rush.values", List.of("bingo"));
+            yaml.set("chat-events.events.type-rush.cooldown-seconds", 0);
             yaml.set("chat-events.reward-profiles.basic.economy.enabled", false);
         });
-        assertEquals(ChatEventManager.StartStatus.STARTED, plugin.getChatEvents().start("bingo"));
+        assertEquals(ChatEventManager.StartStatus.STARTED, plugin.getChatEvents().start("type-rush"));
         plugin.getChatManager().sendPublic(player, ChatChannel.LOCAL, "bingo");
         assertTrue(plugin.getChatEvents().hasActiveEvent(), "Command/synthetic sendPublic must not count as an event answer");
         plugin.getChatManager().route(player, "bingo", null);
@@ -103,17 +110,17 @@ class ChatEventTest extends PluginTestBase {
     }
 
     @Test void schedulerMayBeDisabledWhileManualEventsRemainPlayable() throws Exception {
-        var player = player("Participant");
+        player("Participant");
         config(yaml -> {
             yaml.set("chat-events.scheduler.enabled", false);
-            yaml.set("chat-events.events.bingo.values", List.of("bingo"));
-            yaml.set("chat-events.events.bingo.cooldown-seconds", 0);
+            yaml.set("chat-events.events.type-rush.values", List.of("bingo"));
+            yaml.set("chat-events.events.type-rush.cooldown-seconds", 0);
             yaml.set("chat-events.reward-profiles.basic.economy.enabled", false);
         });
         assertTrue(plugin.getChatEvents().enabled());
         assertFalse(plugin.getChatEvents().schedulerEnabled());
         assertTrue(plugin.getChatEvents().taskActive(), "One coordinator remains available for manual event timeout lifecycle");
-        assertEquals(ChatEventManager.StartStatus.STARTED, plugin.getChatEvents().start("bingo"));
+        assertEquals(ChatEventManager.StartStatus.STARTED, plugin.getChatEvents().start("type-rush"));
         assertTrue(plugin.getChatEvents().stop());
         assertTrue(plugin.getChatEvents().lastEvent().endsWith("/CANCELLED"));
     }
@@ -122,7 +129,7 @@ class ChatEventTest extends PluginTestBase {
         config(yaml -> yaml.set("chat-events.enabled", false));
         assertFalse(plugin.getChatEvents().enabled());
         assertFalse(plugin.getChatEvents().taskActive());
-        assertEquals(ChatEventManager.StartStatus.DISABLED, plugin.getChatEvents().start("bingo"));
+        assertEquals(ChatEventManager.StartStatus.DISABLED, plugin.getChatEvents().start("type-rush"));
         assertEquals(ChatEventManager.StartStatus.DISABLED, plugin.getChatEvents().startRandom(false));
     }
 
@@ -131,7 +138,7 @@ class ChatEventTest extends PluginTestBase {
         int definitions = plugin.getChatEvents().configuredCount();
         var file = plugin.getDataFolder().toPath().resolve("config.yml");
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file.toFile());
-        yaml.set("chat-events.events.bingo.type", "NOT_A_REAL_EVENT");
+        yaml.set("chat-events.events.type-rush.type", "NOT_A_REAL_EVENT");
         yaml.save(file.toFile());
         assertFalse(plugin.reloadPlugin());
         assertEquals(revision, plugin.getConfigManager().revision());
@@ -140,8 +147,7 @@ class ChatEventTest extends PluginTestBase {
     }
 
     @Test void timeoutAndCancellationCannotCreateWinner() {
-        ChatEventConfig config = ChatEventConfig.read(plugin.getConfigManager().section("chat-events"));
-        ChatEventConfig.Definition definition = config.definitions().get("bingo");
+        ChatEventConfig.Definition definition = typeRush();
         UUID player = UUID.randomUUID();
         var round = new ChatEventEngine.Round(UUID.randomUUID(), definition, java.util.Map.of("value", "bingo"), List.of("bingo"));
         var timeout = new ChatEventEngine.Competition(round, 1, 2, Set.of(player));
@@ -154,6 +160,13 @@ class ChatEventTest extends PluginTestBase {
         assertTrue(cancelled.cancel());
         assertFalse(cancelled.tryWin(player, "Late", "bingo"));
         assertNull(cancelled.winner());
+    }
+
+    private ChatEventConfig.Definition typeRush() {
+        ChatEventConfig.Definition definition = ChatEventConfig.read(plugin.getConfigManager().section("chat-events")).definitions().get("type-rush");
+        assertNotNull(definition);
+        assertEquals(ChatEventEngine.Type.TYPE, definition.type());
+        return definition;
     }
 
     private static void attempt(ChatEventEngine.Competition competition, UUID player, CountDownLatch ready, CountDownLatch go, AtomicInteger winners) {
