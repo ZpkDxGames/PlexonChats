@@ -97,18 +97,30 @@ class ChatEventDataStoreTest extends PluginTestBase {
                 "schema-1 administrator files must not be rewritten solely to add 4.0.1 renderer defaults");
     }
 
-    @Test void reloadAppliesNewValidBingoPacingWithoutCreatingSecondConfigAuthority() throws Exception {
+    @Test void dataYmlBingoPacingWinsOverLegacyMigrationCompatibilityValue() throws Exception {
         var dataFile = plugin.getDataFolder().toPath().resolve("data.yml").toFile();
         YamlConfiguration data = YamlConfiguration.loadConfiguration(dataFile);
         data.set("minigames.bingo-classic.draws.interval-seconds", 6);
         data.save(dataFile);
-        assertTrue(plugin.reloadPlugin());
-        assertEquals(6, plugin.getChatEvents().definition("bingo-classic").bingo().drawIntervalSeconds());
 
         var configFile = plugin.getDataFolder().toPath().resolve("config.yml").toFile();
         YamlConfiguration config = YamlConfiguration.loadConfiguration(configFile);
-        assertFalse(config.contains("chat-events.bingo.draws.interval-seconds"));
-        assertFalse(config.contains("chat-events.bingo.draw.interval-seconds"),
-                "config.yml must not become a competing 4.0.1 draw interval authority");
+        config.set("chat-events.bingo.draw.interval-seconds", 99);
+        config.save(configFile);
+
+        assertTrue(plugin.reloadPlugin());
+        assertEquals(6, plugin.getChatEvents().definition("bingo-classic").bingo().drawIntervalSeconds(),
+                "legacy config.yml timing may remain for first-v4 migration compatibility but must never override v4 data.yml authority");
+    }
+
+    @Test void invalidZeroBingoIntervalQuarantinesOnlyBingoDefinition() throws Exception {
+        var dataFile = plugin.getDataFolder().toPath().resolve("data.yml").toFile();
+        YamlConfiguration data = YamlConfiguration.loadConfiguration(dataFile);
+        data.set("minigames.bingo-classic.draws.interval-seconds", 0);
+        data.save(dataFile);
+
+        assertTrue(plugin.reloadPlugin());
+        assertFalse(plugin.getChatEvents().definition("bingo-classic").enabled());
+        assertTrue(plugin.getChatEvents().definition("type-rush").enabled());
     }
 }
