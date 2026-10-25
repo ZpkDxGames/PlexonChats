@@ -17,7 +17,7 @@ Final counts, build source and CI URL are in TEST_REPORT.md and delivered proven
 | DIS-01 | Existing Discord tests retained; explicit U suppression alongside LOCAL; remote has no outbound hook | Actual DiscordSRV connection NOT RUN |
 | OUT-01 | Default standalone U unavailable; L/G independent; no-key/health behavior; no carrier; expired relay health | Actual missing companion restart NOT RUN |
 | OUT-02 | Empty destination, queue saturation, origin movement, old generation, bounded queues/task-count checks, proxy queue expiry | Slow backend/proxy restart NOT RUN |
-| CFG-01 | Customized v10->v11 exact backup, format/default/slot preservation, older fixtures, intentionally empty collections, UUID preference round-trip | Real admin config snapshots unavailable |
+| CFG-01 | Customized v10→v11 exact backup, format/default/slot preservation, older fixtures, intentionally empty collections, UUID preference round-trip | Real admin config snapshots unavailable |
 | CFG-02 | Invalid queue config retains old bridge/revision; existing invalid YAML/data/GUI and event reload rollback tests | Service lifecycle NOT RUN |
 | BUILD-01 | Clean Java 25 Maven reactor; provided API exclusion, metadata, class69 and SHA256 verification script | Live plugin loading NOT RUN |
 | PERF-01 | Local20,000 codec round trips, bounded100-message relay flood, no per-chat scheduler tasks | Idle/burst TPS/MSPT/allocation NOT RUN |

@@ -5,39 +5,38 @@ Feature branch: `feat/velocity-universal-chat`; PR [#18](https://github.com/ZpkD
 
 ## Verified baseline
 
-CI independently built the original source with Java 25 and ran154 tests:
-154 passed,0 failures,0 errors,0 skipped. The source and suite were not substituted
+CI independently built the original source with Java 25 and ran 154 tests:
+154 passed, 0 failures, 0 errors, 0 skipped. The source and suite were not substituted
 with the new branch. Baseline evidence is retained by the workflow.
 
 ## Most recent completed candidate verification
 
-Code at `9ad82a1880d58e3ca38257684e7376c09dd4283a` passed the complete clean Maven
-reactor and distribution checks:191 tests,0 failures,0 errors,0 skipped.
-[CI run40216869058](https://github.com/ZpkDxGames/PlexonChats/actions/runs/40216869058).
-Protocol10; Paper170 (all154 prior tests plus16 Universal cases); Velocity11.
-
-The next candidate additionally checks fully normalized bundled migration content
-and incompatible-version diagnostics; its final result will be recorded before
-handoff. Exact packaged source/checksums are in the delivered PROVENANCE.txt,
-SHA256SUMS.txt and TEST_SUMMARY.json, generated at the tested CI HEAD.
+Code at `6126a02a3d9c275663b2230a7c71c1c8d1eb9b9b` passed the complete clean Maven
+reactor and distribution checks: **193 tests, 0 failures, 0 errors, 0 skipped**.
+[CI run 40217468933](https://github.com/ZpkDxGames/PlexonChats/actions/runs/40217468933).
+Protocol 10; Paper 172 (all 154 prior tests plus 18 Universal cases); Velocity 11.
+The final commit additionally names the fixed queue capacity explicitly; the
+one-slot saturation test exercises that invariant. Downloaded final artifacts
+include the exact later CI source in PROVENANCE.txt and all per-module counts in
+TEST_SUMMARY.json. SHA256SUMS.txt covers the two final JAR bytes.
 
 ## Environment and artifacts
 
 - Maven clean verify reactor: shared protocol, Paper, Velocity.
-- Java 25 / class major69; CI Temurin25.0.4.
-- Paper API26.3.build.223-stable, Velocity API4.3.0.
-- MockBukkit 26.3 4.118.0, JUnit6.0.3, Mockito5.23.0.
-- Optional Core2.0.4 API checksum verified before build; DiscordSRV1.30.5 provided.
+- Java 25 / class major 69; CI Temurin 25.0.4.
+- Paper API 26.3.build.223-stable, Velocity API 4.3.0.
+- MockBukkit 26.3 4.118.0, JUnit 6.0.3, Mockito 5.23.0.
+- Optional Core 2.0.4 API checksum verified before build; DiscordSRV 1.30.5 provided.
 - Paper/Velocity/Bukkit/Adventure/Core/Discord API classes excluded from shipped JARs.
-- Paper SQLite JDBC3.50.3.0 preserved. Companion has only the shared protocol bundled.
+- Paper SQLite JDBC 3.50.3.0 preserved. Companion has only the shared protocol bundled.
 - Paper metadata/plugin.yml, Velocity plugin descriptor, protocol classes and class
   major69 checked by scripts/verify-network-distribution.py.
 
 ## Measured performance
 
-Local isolated codec benchmark, Temurin25.0.1+8,20,000 measured authenticated
-encode+decode round trips after2,000 warmups,702-byte average packet:
-mean16.48µs,p95 26.43µs,p99 48.79µs. Source: scripts/ProtocolBenchmark.java.
+Local isolated codec benchmark, Temurin 25.0.1+8,20,000 measured authenticated
+encode+decode round trips after 2,000 warmups,702-byte average packet:
+mean 16.48µs,p95 26.43µs,p99 48.79µs. Source: scripts/ProtocolBenchmark.java.
 The check asserts every decoded message equals its input. This is a codec
 microbenchmark, not backend TPS/MSPT, memory-profile or production load evidence.
 Queue/cache capacities and burst task counts are asserted separately.

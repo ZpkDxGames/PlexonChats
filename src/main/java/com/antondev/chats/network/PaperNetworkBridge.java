@@ -17,6 +17,7 @@ public final class PaperNetworkBridge implements PluginMessageListener,AutoClose
     private record Pending(UUID player,Envelope message,Runnable accepted,long deadline) {}
     private final PlexonChats plugin;
     private final String instance;
+    private final int capacity;
     private final Set<String> allowlist;
     private final UUID session=UUID.randomUUID();
     private final RecentIds recent=new RecentIds(8192,60_000);
@@ -36,7 +37,7 @@ public final class PaperNetworkBridge implements PluginMessageListener,AutoClose
     public PaperNetworkBridge(PlexonChats plugin) {
         this.plugin=plugin;var config=plugin.getConfigManager();
         instance=config.string("network.instance-id","lobby");allowlist=Set.copyOf(config.lines("network.allowed-server-ids"));
-        int capacity=config.integer("network.queue-capacity",256,1,1024);
+        capacity=config.integer("network.queue-capacity",256,1,1024);
         inbound=new ArrayBlockingQueue<>(capacity);outbound=new ArrayBlockingQueue<>(capacity);
         if(!config.bool("network.enabled",false))return;
         try {key=Protocol.readKey(plugin.getDataFolder().toPath().resolve(config.string("network.authentication-key-file","network.key")));}
@@ -47,7 +48,7 @@ public final class PaperNetworkBridge implements PluginMessageListener,AutoClose
     }
     public boolean ready(){return !closed&&key!=null&&System.currentTimeMillis()<readyUntil;}
     public boolean submit(Player author,Envelope message,Runnable accepted) {
-        if(!ready()||pending.size()>=inbound.remainingCapacity()+inbound.size()||outbound.remainingCapacity()==0){unavailable(author);drops.incrementAndGet();return false;}
+        if(!ready()||pending.size()>=capacity||outbound.remainingCapacity()==0){unavailable(author);drops.incrementAndGet();return false;}
         try {Protocol.encode(message,key);}catch(IllegalArgumentException ex){author.sendMessage(plugin.getConfigManager().message("network-payload-invalid"));return false;}
         pending.put(message.id(),new Pending(author.getUniqueId(),message,accepted,System.currentTimeMillis()+4000));
         if(!outbound.offer(message.id())){pending.remove(message.id());unavailable(author);return false;}

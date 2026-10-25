@@ -43,3 +43,23 @@ retains existing player formatting/interactions. API methods/event descriptors
 stay unchanged; downstream exhaustive enum switches must handle the new value.
 
 Automated baseline/build results and final audit are recorded in TEST_REPORT.md.
+
+## Final implementation review
+
+| Area | Final repository status |
+|---|---|
+| Enum, commands/aliases/help/tab completion, GUI state/actions/previews | PASS automated; UNIVERSAL appended and `/u` implemented |
+| Native ownership, moderation cancellation/edits, viewer subset and channel limits | PASS automated; same ChatManager route, eligibility rechecked; restricted U cannot expand remotely |
+| GLOBAL/LOCAL isolation, inclusive100-block boundary, all-world GLOBAL | PASS automated; only U has a wire representation |
+| Preferences, UUID data, PMs/reply, data.yml and SQLite models | PASS regression; unchanged implementations/data schema |
+| Public API/event | PASS source descriptor review; API interface unchanged, event comment only; enum exhaustive-switch caveat documented |
+| DiscordSRV | PASS regression; production bridge source byte-for-byte unchanged, GLOBAL-only; remote path has no bridge/event hooks |
+| Chat Events/Bingo/rewards/statistics | PASS regression; U explicitly ineligible; existing code unchanged except answer guard |
+| Config schema drift, exact backups, custom GUI collections | PASS automated; schema11 additive, bundled stock migrations materialized; custom layouts/values preserved |
+| Protocol, proxy connection provenance, HMAC, bounded queues/dedup | PASS unit/mock transport; no new network listener |
+| Platform compilation/metadata/shading, test totals | PASS CI; see TEST_REPORT.md and generated distribution evidence |
+| Real network routing, installed integrations, client visuals, TPS/MSPT | BLOCKED / NOT RUN pending authorized staging access and acceptance |
+
+All initial CHANGE REQUIRED items have implementations/tests. PASS above means
+source/automated verification, not production certification. Actual final source
+SHA and artifact hashes are recorded by the CI build, not inferred from filenames.
