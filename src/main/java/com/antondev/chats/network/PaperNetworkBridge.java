@@ -29,8 +29,10 @@ public final class PaperNetworkBridge implements PluginMessageListener,AutoClose
     private boolean registered;
     private BukkitTask task;
     private UUID hello;
-    private long readyUntil,nextHello;
-    private String state="DISABLED";
+    private volatile long readyUntil;
+    private long nextHello;
+    private volatile String state="DISABLED";
+    private final AtomicLong incompatible=new AtomicLong();
     public PaperNetworkBridge(PlexonChats plugin) {
         this.plugin=plugin;var config=plugin.getConfigManager();
         instance=config.string("network.instance-id","lobby");allowlist=Set.copyOf(config.lines("network.allowed-server-ids"));
@@ -62,7 +64,10 @@ public final class PaperNetworkBridge implements PluginMessageListener,AutoClose
             if(!e.session().equals(session)||!allowlist.contains(e.server())||
                     !Set.of(Envelope.Type.READY,Envelope.Type.DELIVER,Envelope.Type.ACCEPT,Envelope.Type.REJECT).contains(e.type()))throw new IllegalArgumentException();
             if(!inbound.offer(e))drops.incrementAndGet();
-        }catch(IllegalArgumentException ex){rejected.incrementAndGet();}
+        }catch(IllegalArgumentException ex){
+            rejected.incrementAndGet();
+            if ("Incompatible protocol".equals(ex.getMessage())) { incompatible.incrementAndGet(); readyUntil=0; state="INCOMPATIBLE_PROTOCOL"; }
+        }
     }
     private void tick() {
         if(closed)return;long now=System.currentTimeMillis();recent.cleanup(now);
@@ -108,7 +113,7 @@ public final class PaperNetworkBridge implements PluginMessageListener,AutoClose
         catch(RuntimeException ex){drops.incrementAndGet();readyUntil=0;state="TRANSPORT_FAILED";return false;}
     }
     public void unavailable(Player player){player.sendMessage(plugin.getConfigManager().message("network-unavailable"));}
-    public String status(){return (ready()?"READY":state.equals("READY")?"UNAVAILABLE":state)+" protocol=1 pending="+pending.size()+" inbound="+inbound.size()+" outbound="+outbound.size()+" drops="+drops.get()+" duplicates="+duplicates.get()+" rejected="+rejected.get();}
+    public String status(){return (ready()?"READY":state.equals("READY")?"UNAVAILABLE":state)+" protocol=1 pending="+pending.size()+" inbound="+inbound.size()+" outbound="+outbound.size()+" drops="+drops.get()+" duplicates="+duplicates.get()+" rejected="+rejected.get()+" incompatible="+incompatible.get();}
     public int pending(){return pending.size();}
     public UUID session(){return session;}
     @Override public void close(){if(closed)return;closed=true;if(task!=null)task.cancel();if(registered){plugin.getServer().getMessenger().unregisterIncomingPluginChannel(plugin,Protocol.CHANNEL,this);plugin.getServer().getMessenger().unregisterOutgoingPluginChannel(plugin,Protocol.CHANNEL);}for(Pending work:pending.values()){Player author=Bukkit.getPlayer(work.player());if(author!=null)unavailable(author);}pending.clear();inbound.clear();outbound.clear();recent.clear();readyUntil=0;state="CLOSED";}

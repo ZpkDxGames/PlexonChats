@@ -44,7 +44,7 @@ duplicate counters. No key material, webhook or forwarding secret is printed.
 
 Bounds: at most16 backend keys/leases,1024 queued origin/proxy/inbound entries,
 8192 seen IDs,24KB raw packet,8KB body,512 UUID audience. Paper pending callbacks
-are bounded by queue capacity and expire after4s. No per-recipient network task,
+are bounded by queue capacity and expire after 4s. No per-recipient network task,
 HTTP/socket listener, Redis service, database operation or blocking external I/O
 is introduced on the chat path. Key reads occur only at startup/config reload.
 

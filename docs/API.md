@@ -101,3 +101,13 @@ validate message
 ```
 
 Paper's lower-priority moderation result is captured before PlexonChats takes ownership of `AsyncChatEvent`, including message edits, cancellation, and viewer restrictions.
+
+## 4.1 Universal extension
+
+Existing method/event descriptors are retained; UNIVERSAL is appended after
+LOCAL/GLOBAL. Public Universal sends run the same synchronous moderation path,
+then bounded proxy admission; the API's void send method does not promise a
+network acknowledgement. Remote receives never fire PlexonChatEvent. Native/API
+viewer restrictions cannot expand into remote audiences. Downstream exhaustive
+enum switches need a Universal case/default. Discord flags remain GLOBAL-only.
+See [channel contracts](network/CHANNEL_SEMANTICS.md).

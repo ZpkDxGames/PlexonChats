@@ -59,6 +59,23 @@ class UniversalChatTest extends PluginTestBase {
     @Test void configuredBridgeWithoutPlayersHasNoCarrierAndNoHistory()throws Exception {
         enable();server.getScheduler().performOneTick();assertTrue(plugin.getNetworkBridge().status().startsWith("NO_CARRIER"));assertEquals(0,plugin.getNetworkBridge().pending());
     }
+    @Test void bundledSchemaAndContentAlreadyMatchAllShippedStockMigrations()throws Exception {
+        String text;try(var in=plugin.getResource("config.yml")){text=new String(in.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);}
+        var defaults=new YamlConfiguration();defaults.loadFromString(text);
+        assertEquals(com.antondev.chats.config.ConfigUpgrader.VERSION,defaults.getInt("config-version"));
+        var older=new YamlConfiguration();older.loadFromString(text);older.set("config-version",8);
+        com.antondev.chats.config.ConfigUpgrader.upgrade(older,defaults);
+        defaults.getValues(true).forEach((path,value)->{if(!(value instanceof org.bukkit.configuration.ConfigurationSection))assertEquals(value,older.get(path),path);});
+    }
+    @Test void authenticatedUnknownProtocolRevokesReadinessAndShowsDiagnostic()throws Exception {
+        var listener=player("Listener");enable();ready();
+        Envelope e=new Envelope(Envelope.Type.DELIVER,UUID.randomUUID(),plugin.getNetworkBridge().session(),System.currentTimeMillis(),"smp",UUID.randomUUID(),"Remote","Remote","","hello",List.of(listener.getUniqueId()),false);
+        byte[] data=Protocol.encode(e,key);data[5]=2;
+        var mac=javax.crypto.Mac.getInstance("HmacSHA256");mac.init(new javax.crypto.spec.SecretKeySpec(key,"HmacSHA256"));
+        byte[] signature=mac.doFinal(Arrays.copyOf(data,data.length-32));System.arraycopy(signature,0,data,data.length-32,32);
+        plugin.getNetworkBridge().onPluginMessageReceived(Protocol.CHANNEL,listener,data);
+        assertFalse(plugin.getNetworkBridge().ready());assertTrue(plugin.getNetworkBridge().status().contains("INCOMPATIBLE_PROTOCOL"));assertNull(next(listener));
+    }
     @Test void literalPlayerSectionCodesDoNotGainFormattingOverTransport() {
         var original=net.kyori.adventure.text.Component.text("§cLiteral \ue000 text <red>literal</red>");
         var decoded=com.antondev.chats.network.NetworkText.decode(com.antondev.chats.network.NetworkText.encode(original));

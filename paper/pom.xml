@@ -15,7 +15,7 @@
         <plexoncore.version>2.0.4</plexoncore.version>
         <sqlite.version>3.50.3.0</sqlite.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <project.build.outputTimestamp>2026-09-13T00:00:00Z</project.build.outputTimestamp>
+        <project.build.outputTimestamp>2026-10-25T00:00:00Z</project.build.outputTimestamp>
     </properties>
     <repositories>
         <repository><id>central</id><url>https://repo.maven.apache.org/maven2/</url></repository>

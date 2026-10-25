@@ -17,7 +17,7 @@ class ProtocolTest {
     @Test void excessiveAudienceRejected(){Envelope e=message("hi");var crowd=Collections.nCopies(513,UUID.randomUUID());assertThrows(IllegalArgumentException.class,()->Protocol.encode(new Envelope(e.type(),e.id(),e.session(),now,e.server(),e.author(),e.name(),"","","hi",crowd,false),key));}
     @Test void malformedAuthenticatedHeaderFieldsRejected()throws Exception {
         byte[] good=Protocol.encode(message("hello"),key);
-        for(int offset:new int[]{0,4,6}){byte[] data=good.clone();data[offset]=(byte)255;resign(data);assertThrows(IllegalArgumentException.class,()->Protocol.decode(data,key,now));}
+        for(int offset:new int[]{0,4,6,7}){byte[] data=good.clone();data[offset]=(byte)255;resign(data);assertThrows(IllegalArgumentException.class,()->Protocol.decode(data,key,now));}
         byte[] trailing=Arrays.copyOf(good,good.length+1);resign(trailing);assertThrows(IllegalArgumentException.class,()->Protocol.decode(trailing,key,now));
     }
     @Test void invalidUtf8IsRejectedEvenWithValidMac()throws Exception {

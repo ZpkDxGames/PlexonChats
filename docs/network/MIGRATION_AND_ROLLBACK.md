@@ -6,7 +6,7 @@ before any production rollout. This candidate is not live certified.
 
 ## Preconditions and independent routing check
 
-Use Java25, Paper26.3 and Velocity4.3.0. The compiled Paper API is pinned to
+Use Java 25, Paper 26.3 and Velocity 4.3.0. The compiled Paper API is pinned to
 26.3.build.223-stable, Velocity API4.3.0. First stage isolated copies matching the
 real plugins/configuration. Existing offline-account, whitelist and forwarding
 policies must remain unchanged.
@@ -29,7 +29,7 @@ copy identity/forwarding secrets into this package or broaden permissions.
 
 ## Dedicated chat authentication keys
 
-Generate three independent32-byte random keys on an operator-controlled machine,
+Generate three independent 32-byte random keys on an operator-controlled machine,
 using a restrictive umask. Example **operator-only command, not executed here**:
 
 ```sh
@@ -49,17 +49,17 @@ No key values are included in the delivered examples.
 ## Staging sequence
 
 1. Check SHA256SUMS.txt against both delivered JARs; retain provenance/test files.
-2. On an isolated Velocity4.3.0 staging proxy, install
+2. On an isolated Velocity 4.3.0 staging proxy, install
    `PlexonChats-Velocity-4.1.0-SNAPSHOT.jar` in its plugins directory. First start
    creates `plugins/plexonchats-velocity/bridge.properties`, disabled by default.
 3. Stage the three key files. Merge `examples/velocity-bridge.properties` with
    that file, ensure the allowlist matches registered servers, then restart the
    staging proxy normally. No hot-loading.
 4. Stage `PlexonChats-4.1.0-SNAPSHOT.jar` on one matching Paper backend. First load
-   upgrades config.yml additively to schema11 and saves an exact
+   upgrades config.yml additively to schema 11 and saves an exact
    `config-before-v11-<timestamp>.yml`. The bundled header and stock presentation
    now match the real schema; prior exact-stock v8->v10 transformations remain
-   supported. data.yml stays schema1; existing data/players/statistics survive.
+   supported. data.yml stays schema 1; existing data/players/statistics survive.
 5. Merge only the `network` section from the matching Paper example into the
    existing config. Keep the administrator's default-channel, formats, reward
    profiles, gameplay values and player preferences. Configure instance-id exactly.
@@ -110,13 +110,13 @@ counts. Codec timings alone are not a performance certification.
 
 1. Announce/authorize a rollback window, stop only affected Paper services cleanly;
    coordinate the separate proxy restart, which disconnects clients.
-2. Restore each instance's original4.0.1 JAR and its own exact pre-v11 config.yml.
+2. Restore each instance's original 4.0.1 JAR and its own exact pre-v11 config.yml.
    Old builds reject a newer schema; restoring just the JAR is insufficient.
 3. Preserve current players.yml/statistics whenever possible. Before restoring
    an older binary, translate only UNIVERSAL selections back to the operator's
    chosen LOCAL/GLOBAL fallback if needed; do not restore stale player/DB copies
    and lose new wins simply to remove a channel. Back up the current state first.
-4. data.yml remains schema1; restore it only if separately changed. Preserve all
+4. data.yml remains schema 1; restore it only if separately changed. Preserve all
    runtime-created wins and SQLite consistency. No database schema change exists.
 5. Remove/restore only the companion JAR/config; keep dedicated chat keys private
    for rotation/removal under the operator's retention policy. Do not touch other

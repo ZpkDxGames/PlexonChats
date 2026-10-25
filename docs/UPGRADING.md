@@ -1,3 +1,12 @@
+# Upgrading to the 4.1 network candidate
+
+For this feature branch, follow [network migration and rollback](network/MIGRATION_AND_ROLLBACK.md).
+Schema11 requires restoring the pre-v11 config when returning to 4.0.1. Player data,
+event definitions and statistics remain local and compatible; Universal selections
+need an explicit fallback when downgrading. Production rollout is not performed.
+
+---
+
 # Upgrading PlexonChats to 4.0.1
 
 PlexonChats 4.0.1 is a focused Bingo renderer/pacing release built directly from stable `v4.0.0` (`657d27766bce60235bc50602b4dd4d14b9e6998c`). The 4.0.0 participant-owned/manual-mark authority model remains unchanged.

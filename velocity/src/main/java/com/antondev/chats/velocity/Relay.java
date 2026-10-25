@@ -19,7 +19,7 @@ public final class Relay implements AutoCloseable {
     private record Work(String origin,UUID carrier,Envelope message) {}
     private final ArrayBlockingQueue<Work> queue;
     private final RecentIds ids=new RecentIds(8192,60_000);
-    private long rejected,duplicates,drops,accepted,delivered;
+    private long rejected,duplicates,drops,accepted,delivered,incompatible;
     private boolean closed;
     public Relay(Map<String,byte[]> keys,Transport transport,int capacity) {
         if(keys.isEmpty()||keys.size()>16||capacity<1||capacity>1024)throw new IllegalArgumentException();
@@ -43,7 +43,7 @@ public final class Relay implements AutoCloseable {
             if(e.type()!=Envelope.Type.SUBMIT || lease==null || now-lease.seen()>10_000 || !lease.session().equals(e.session()) || e.body().isBlank())throw new IllegalArgumentException();
             if(!ids.add(e.id(),now)){duplicates++;return;}
             if(!queue.offer(new Work(actualBackend,carrier,e))){drops++;reject(actualBackend,e,"BUSY");}
-        } catch(IllegalArgumentException ex){rejected++;}
+        } catch(IllegalArgumentException ex){rejected++;if("Incompatible protocol".equals(ex.getMessage()))incompatible++;}
     }
     public synchronized void drain(long now) {
         if(closed)return;
@@ -75,7 +75,7 @@ public final class Relay implements AutoCloseable {
     private void reject(String origin,Envelope e,String reason) {
         transport.send(origin,Protocol.encode(new Envelope(Envelope.Type.REJECT,e.id(),e.session(),e.createdAt(),origin,e.author(),e.name(),"","",reason,null,false),keys.get(origin)));
     }
-    public synchronized String status(){return "protocol=1 queue="+queue.size()+" accepted="+accepted+" backendSends="+delivered+" rejected="+rejected+" duplicates="+duplicates+" drops="+drops;}
+    public synchronized String status(){return "protocol=1 queue="+queue.size()+" accepted="+accepted+" backendSends="+delivered+" rejected="+rejected+" duplicates="+duplicates+" drops="+drops+" incompatible="+incompatible;}
     public synchronized int pending(){return queue.size();}
     public synchronized void close(){closed=true;queue.clear();ids.clear();leases.clear();helloTimes.clear();}
 }

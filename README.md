@@ -1,6 +1,26 @@
 # PlexonChats
 
-PlexonChats **4.0.1** is the stable Plexon communication plugin for Paper 26.2 / Java 25. It owns LOCAL/GLOBAL public chat, private messages, safe MiniMessage presentation, GUI/preferences, scheduled messages, persistent Chat Events, joinable participant-owned Bingo, diagnostics, optional DiscordSRV chat bridging, and stateful Discord Chat Event embeds.
+PlexonChats **4.1.0-SNAPSHOT** is the TonimNetwork development candidate for Paper 26.3 / Java 25, with a separate Velocity 4.3.0 companion. It owns LOCAL/GLOBAL/UNIVERSAL public chat, private messages, safe MiniMessage presentation, GUI/preferences, scheduled messages, persistent Chat Events, joinable participant-owned Bingo, diagnostics, optional DiscordSRV chat bridging, and stateful Discord Chat Event embeds.
+
+## TonimNetwork channels
+
+| Channel | Scope | Command |
+|---|---|---|
+| LOCAL | Current backend/world, configurable100-block inclusive radius | `/l [message]` |
+| GLOBAL | Current backend, every world, unlimited distance | `/g [message]` |
+| UNIVERSAL | Lobby + SMP + Towny, origin label, eligible live players | `/u [message]` |
+
+Universal is opt-in: network transport defaults disabled; existing preferred/default
+channels are preserved. Configure the first-party companion and three dedicated
+backend keys before enabling it. GLOBAL remains backend-local; LOCAL and PMs never
+bridge. Discord stays GLOBAL-only. Remote Universal is presentation-only and can
+never win an event or issue a reward. Delivery is bounded/best effort, without history.
+
+See [architecture](docs/network/NETWORK_ARCHITECTURE.md),
+[setup/rollback](docs/network/MIGRATION_AND_ROLLBACK.md),
+[protocol/security](docs/network/PROTOCOL_SPEC.md), and
+[test evidence](docs/network/TEST_REPORT.md). Live staging certification is pending;
+this branch is not a stable release or production deployment.
 
 ## Chat Events
 
@@ -52,7 +72,7 @@ Transport modes remain `AUTO`, `DISCORDSRV`, and `WEBHOOK`. Webhook URLs remain 
 
 ## Configuration and migration
 
-`config.yml` remains configuration schema **v10**. `data.yml` remains schema **1** for scheduler/randomizer/minigame gameplay data; 4.0.1 does not bump that schema simply to introduce new stock renderer defaults.
+`config.yml` advances additively to schema **v11** with an exact pre-migration backup. `data.yml` remains schema **1** for scheduler/randomizer/minigame gameplay data; 4.0.1 does not bump that schema simply to introduce new stock renderer defaults.
 
 On first v4 startup when `data.yml` does not exist, PlexonChats:
 
@@ -72,8 +92,8 @@ See [Configuration](docs/CONFIGURATION.md) and [Upgrading](docs/UPGRADING.md).
 | Command | Purpose | Permission |
 | --- | --- | --- |
 | `/chat gui` | Player channel/alert preferences | `plexonchats.gui` |
-| `/chat channel <local\|global>` | Select outgoing channel | channel permission |
-| `/g [message]`, `/l [message]` | Select/send GLOBAL or LOCAL chat | `plexonchats.global`, `plexonchats.local` |
+| `/chat channel <local\|global\|universal>` | Select outgoing channel | channel permission |
+| `/u [message]`, `/g [message]`, `/l [message]` | Select/send each independent channel | corresponding channel permission |
 | `/msg <player> <message>`, `/reply <message>` | Private messages | `plexonchats.tell` |
 | `/announce <message>` | Server-wide announcement | `plexonchats.announce` |
 | `/chat admin`, `/chat status`, `/chat diagnostics` | Administration/runtime state | `plexonchats.manage` |
@@ -107,7 +127,7 @@ AFK remains PlexonUtility-owned and is not duplicated in Chats.
 
 ## Requirements
 
-- Paper **26.2**
+- Paper **26.3**
 - Java **25** / class major **69**
 - Optional PlexonCore **2.x**; supported Core API range `>=1.0 <3.0`
 - Optional Vault + economy provider
@@ -125,11 +145,12 @@ Canonical verification:
 mvn --batch-mode clean verify
 ```
 
-Stable release assets:
+Candidate build outputs (no stable release is published):
 
-- `PlexonChats-4.0.1.jar`
+- `PlexonChats-4.1.0-SNAPSHOT.jar`
+- `PlexonChats-Velocity-4.1.0-SNAPSHOT.jar`
 - `SHA256SUMS.txt`
-- `TEST_SUMMARY.txt`
+- `TEST_SUMMARY.json`
 - `PROVENANCE.txt`
 
 Authoritative baseline and rollback: `v4.0.0` / `657d27766bce60235bc50602b4dd4d14b9e6998c`.
