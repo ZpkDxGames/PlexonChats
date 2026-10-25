@@ -11,7 +11,7 @@ import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
 
-/** Main-thread pre-delivery event for public chat, including /g and /l. Never fired for PMs. */
+/** Main-thread pre-delivery event for public chat, including /g, /l and /u. Never fired for PMs. */
 public final class PlexonChatEvent extends Event implements Cancellable {
     private static final HandlerList HANDLERS = new HandlerList();
     private final Player player;

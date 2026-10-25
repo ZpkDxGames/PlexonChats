@@ -172,7 +172,7 @@ gui:
       disabled-material: GRAY_DYE
       glow-when-active: true
       name: "<aqua><bold>[U] Universal chat</bold></aqua>"
-      lore: ["<gray>Talk across Lobby, SMP and Towny.", "<gray>Command <dark_gray>› <white>/u [message]", "", "{state}"]
+      lore: ["<gray>Talk across Lobby, SMP and Towny.", "<gray>Command <dark_gray>› <white>/u [message]", "<gray>Connection <dark_gray>› <white>{network_status}", "", "{state}"]
     mentions:
       slot: 14
       action: TOGGLE_MENTIONS

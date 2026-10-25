@@ -97,7 +97,7 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
         diagnostic(sender, "Config revision", String.valueOf(plugin.getConfigManager().revision()));
         diagnostic(sender, "Last reload", diagnostics.lastReload());
         diagnostic(sender, "Recent integration failure", diagnostics.recentIntegrationFailure());
-        diagnostic(sender, "Channels", "LOCAL=" + state(plugin.getConfigManager().isLocalEnabled()) + ", GLOBAL=" + state(plugin.getConfigManager().isGlobalEnabled()));
+        diagnostic(sender, "Channels", "LOCAL=" + state(plugin.getConfigManager().isLocalEnabled()) + ", GLOBAL=" + state(plugin.getConfigManager().isGlobalEnabled()) + ", UNIVERSAL=" + state(plugin.getConfigManager().isChannelEnabled(ChatChannel.UNIVERSAL)));
         diagnostic(sender, "Network bridge", plugin.getNetworkBridge().status());
         diagnostic(sender, "Public API", apiRegistered ? "REGISTERED" : "NOT REGISTERED");
         diagnostic(sender, "PlexonChatEvent", "SYNC / CANCELLABLE / PRE-DELIVERY");

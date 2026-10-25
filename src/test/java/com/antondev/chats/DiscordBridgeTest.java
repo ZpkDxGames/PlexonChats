@@ -104,7 +104,9 @@ class DiscordBridgeTest extends PluginTestBase {
         bridge.sendChat(event);
         bridge.sendChat(event);
         assertEquals(tasksBefore, server.getScheduler().getPendingTasks().size(), "Discord export must not create one Bukkit task per chat message");
-        drainWorker();
+        // MockBukkit 26.3 waitAsyncTasksFinished cancels repeating tasks before waiting.
+        // Wait for the actual worker result before teardown can cancel that worker.
+        server.getScheduler().performOneTick();
         verify(discord, timeout(2000).times(3)).processChatMessage(sender, "filtered @\u200Beveryone", "global", false, event);
     }
 
