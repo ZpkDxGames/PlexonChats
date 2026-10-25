@@ -4,3 +4,8 @@
 /.classpath
 /.project
 /.settings/
+
+**/target/
+/dist/
+*.key
+/maven-verify.log

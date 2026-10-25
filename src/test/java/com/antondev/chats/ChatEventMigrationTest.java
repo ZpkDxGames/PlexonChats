@@ -35,7 +35,7 @@ class ChatEventMigrationTest extends PluginTestBase {
         YamlConfiguration defaults = defaults();
 
         assertTrue(ConfigUpgrader.upgrade(current, defaults));
-        assertEquals(10, current.getInt("config-version"));
+        assertEquals(11, current.getInt("config-version"));
         assertEquals("TYPE", current.getString("chat-events.events.bingo.type"));
         assertEquals("My Legacy Bingo Word", current.getString("chat-events.events.bingo.name"));
         assertEquals(9, current.getInt("chat-events.events.bingo.weight"));
@@ -96,7 +96,7 @@ class ChatEventMigrationTest extends PluginTestBase {
                 """);
 
         assertTrue(ConfigUpgrader.upgrade(current, defaults()));
-        assertEquals(10, current.getInt("config-version"));
+        assertEquals(11, current.getInt("config-version"));
         assertEquals("Saturday Bingo", current.getString("chat-events.events.my-bingo.name"));
         assertEquals("BINGO", current.getString("chat-events.events.my-bingo.type"));
         assertEquals(17, current.getInt("chat-events.events.my-bingo.weight"));
@@ -151,7 +151,7 @@ class ChatEventMigrationTest extends PluginTestBase {
                 """);
 
         assertTrue(ConfigUpgrader.upgrade(current, defaults()));
-        assertEquals(10, current.getInt("config-version"));
+        assertEquals(11, current.getInt("config-version"));
         assertTrue(current.getBoolean("chat-events.discord.enabled"));
         assertEquals("WEBHOOK", current.getString("chat-events.discord.transport"));
         assertEquals("DISPLAY_ONLY", current.getString("chat-events.discord.participation-mode"));
@@ -174,7 +174,7 @@ class ChatEventMigrationTest extends PluginTestBase {
         current.createSection("chat-events.events");
 
         assertTrue(ConfigUpgrader.upgrade(current, defaults()));
-        assertEquals(10, current.getInt("config-version"));
+        assertEquals(11, current.getInt("config-version"));
         assertTrue(current.isConfigurationSection("chat-events.events.type-rush"));
         assertTrue(current.isConfigurationSection("chat-events.events.unscramble"));
         assertTrue(current.isConfigurationSection("chat-events.events.math-normal"));
@@ -194,7 +194,7 @@ class ChatEventMigrationTest extends PluginTestBase {
         current.set("config-version", 8);
 
         assertTrue(ConfigUpgrader.upgrade(current, defaults()));
-        assertEquals(10, current.getInt("config-version"));
+        assertEquals(11, current.getInt("config-version"));
         assertTrue(current.getStringList("chat-events.presentation.start").stream().anyMatch(line -> line.contains("✦ {event_type}")));
         assertTrue(current.getStringList("chat-events.presentation.start").stream().anyMatch(line -> line.contains("HOW TO PLAY")));
         assertFalse(current.getStringList("chat-events.presentation.start").stream().anyMatch(line -> line.contains("CHAT EVENT")));
@@ -216,7 +216,7 @@ class ChatEventMigrationTest extends PluginTestBase {
         current.set("chat-events.events.unscramble.words", List.of("myword", "anotherword"));
 
         assertTrue(ConfigUpgrader.upgrade(current, defaults()));
-        assertEquals(10, current.getInt("config-version"));
+        assertEquals(11, current.getInt("config-version"));
         assertEquals(customStart, current.getStringList("chat-events.presentation.start"));
         assertEquals("<blue>Custom {scrambled}</blue>", current.getString("chat-events.events.unscramble.prompt"));
         assertEquals(List.of("myword", "anotherword"), current.getStringList("chat-events.events.unscramble.words"));

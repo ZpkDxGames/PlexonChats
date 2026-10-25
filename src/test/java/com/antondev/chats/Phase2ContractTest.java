@@ -11,8 +11,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class Phase2ContractTest extends PluginTestBase {
     @Test void releaseMetadataAndConfigGenerationMatchCandidate() {
-        assertEquals("4.0.1", plugin.getPluginMeta().getVersion());
-        assertEquals(10, ConfigUpgrader.VERSION);
+        assertEquals("4.1.0-SNAPSHOT", plugin.getPluginMeta().getVersion());
+        assertEquals(11, ConfigUpgrader.VERSION);
         assertTrue(plugin.getConfigManager().revision() >= 1);
         assertTrue(plugin.getDiagnostics().lastReload().startsWith("SUCCESS"));
     }

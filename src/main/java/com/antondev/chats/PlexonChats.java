@@ -62,6 +62,7 @@ public class PlexonChats extends JavaPlugin implements Listener {
     private PlexonChatsAPI api;
     private CoreBridge coreBridge;
     private BukkitTask cleanupTask;
+    private com.antondev.chats.network.PaperNetworkBridge networkBridge;
 
     @Override
     public void onEnable() {
@@ -94,6 +95,7 @@ public class PlexonChats extends JavaPlugin implements Listener {
             register("bingo", new BingoCommand(this));
             register("g", new GlobalChatCommand(this));
             register("l", new LocalChatCommand(this));
+            register("u", new UniversalChatCommand(this));
             register("announce", new AnnouncementCommand(this));
             messageCommand = new MessageCommand(this);
             register("msg", messageCommand);
@@ -103,6 +105,7 @@ public class PlexonChats extends JavaPlugin implements Listener {
             cleanupTask = getServer().getScheduler().runTaskTimer(this, itemPreviewManager::cleanupExpired, 1200, 1200);
             api = new PlexonChatsApiImpl(this);
             getServer().getServicesManager().register(PlexonChatsAPI.class, api, this, ServicePriority.Normal);
+            networkBridge = new com.antondev.chats.network.PaperNetworkBridge(this);
             diagnostics.recordReload(true, "startup revision " + configManager.revision());
             publishCoreHealth();
             getLogger().info("PlexonChats " + getPluginMeta().getVersion()
@@ -166,6 +169,8 @@ public class PlexonChats extends JavaPlugin implements Listener {
         publishCoreHealth();
         // Keep Chat Events last: a failed earlier refresh leaves the current competition untouched for rollback.
         chatEvents.reload();
+        if (networkBridge != null) networkBridge.close();
+        networkBridge = new com.antondev.chats.network.PaperNetworkBridge(this);
     }
 
     @EventHandler
@@ -208,6 +213,7 @@ public class PlexonChats extends JavaPlugin implements Listener {
     @Override public void onDisable() { shutdown(); getLogger().info("PlexonChats disabled."); }
 
     private void shutdown() {
+        if (networkBridge != null) { networkBridge.close(); networkBridge = null; }
         if (cleanupTask != null) { cleanupTask.cancel(); cleanupTask = null; }
         if (chatEvents != null) { chatEvents.close(); chatEvents = null; }
         if (autoMessages != null) { autoMessages.close(); autoMessages = null; }
@@ -222,6 +228,7 @@ public class PlexonChats extends JavaPlugin implements Listener {
         if (coreBridge != null) { coreBridge.unregister(); coreBridge = null; }
     }
 
+    public com.antondev.chats.network.PaperNetworkBridge getNetworkBridge() { return networkBridge; }
     public boolean cleanupTaskActive() { return cleanupTask != null && !cleanupTask.isCancelled(); }
     public ChatDiagnostics getDiagnostics() { return diagnostics; }
     public ConfigManager getConfigManager() { return configManager; }

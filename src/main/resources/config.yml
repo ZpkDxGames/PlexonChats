@@ -1,10 +1,10 @@
 # ============================================================
-# PlexonChats 3.6 — Discord Chat Events / Paper 26.2 / Java 25
+# PlexonChats 4.1 candidate — TonimNetwork / Paper 26.3 / Java 25
 # All admin-owned text supports MiniMessage. UTF-8, spaces only.
 # /chat reload validates the complete candidate before activation.
 # Existing settings are retained, with a backup before schema migration.
 # ============================================================
-config-version: 8
+config-version: 11
 server-name: "Plexon"
 default-channel: LOCAL
 
@@ -23,6 +23,23 @@ channels:
     badge: "<gradient:#6ea8ff:#88beff>[G]</gradient>"
     shortcut-prefix: "!"
     receive-permission: ""
+  universal:
+    enabled: true
+    format: "{channel_badge} <dark_gray>[{server}]</dark_gray> {rank_prefix}{player}{separator}<white>{message}"
+    badge: "<gradient:#63e6ef:#72aaff>[U]</gradient>"
+    shortcut-prefix: ""
+    receive-permission: ""
+
+network:
+  enabled: false
+  instance-id: lobby
+  allowed-server-ids: [lobby, smp, towny]
+  server-labels:
+    lobby: Lobby
+    smp: SMP
+    towny: Towny
+  authentication-key-file: network.key
+  queue-capacity: 256
 
 chat-components:
   player:
@@ -147,6 +164,15 @@ gui:
       glow-when-active: true
       name: "<gradient:#6ea8ff:#88beff><bold>Global chat</bold></gradient>"
       lore: ["<gray>Talk across the server.", "<gray>Shortcut <dark_gray>› <white>{global_shortcut}", "", "{state}"]
+    universal:
+      slot: 11
+      action: UNIVERSAL
+      material: ENDER_EYE
+      active-material: LIME_CONCRETE
+      disabled-material: GRAY_DYE
+      glow-when-active: true
+      name: "<aqua><bold>[U] Universal chat</bold></aqua>"
+      lore: ["<gray>Talk across Lobby, SMP and Towny.", "<gray>Command <dark_gray>› <white>/u [message]", "", "{state}"]
     mentions:
       slot: 14
       action: TOGGLE_MENTIONS
@@ -209,7 +235,7 @@ gui:
         action: PREVIEW_FORMAT
         material: NAME_TAG
         name: "<aqua><bold>Preview chat formats</bold></aqua>"
-        lore: ["<gray>Show local/global previews only to you.", "<gray>Hover your nickname to inspect it."]
+        lore: ["<gray>Show all three channel previews only to you.", "<gray>Hover your nickname to inspect it."]
       integration:
         slot: 16
         action: NONE
@@ -662,6 +688,9 @@ integrations:
 
 messages:
   prefix: "<bold><gradient:#88beff:#b9d8ff>PlexonChats</gradient></bold> <dark_gray>» "
+  network-unavailable: "<red>Universal chat is unavailable or delivery was not confirmed. Please try again when the bridge is ready.</red>"
+  network-partial: "<yellow>Universal chat was accepted, but one or more occupied servers could not be reached.</yellow>"
+  network-payload-invalid: "<red>This message cannot be sent safely over the network (text or audience limit).</red>"
   channel-switched: "<green>You switched to the <white>{channel}</white> channel."
   channel-already: "<yellow>You are already in the <white>{channel}</white> channel."
   channel-disabled: "<red>{channel} chat is currently disabled."

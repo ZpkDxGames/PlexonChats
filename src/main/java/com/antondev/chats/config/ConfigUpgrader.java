@@ -12,7 +12,7 @@ import java.util.Set;
 
 /** Adds new options without overwriting administrator-owned values, while repairing known migration regressions. */
 public final class ConfigUpgrader {
-    public static final int VERSION = 10;
+    public static final int VERSION = 11;
     private static final Set<String> USER_COLLECTIONS = Set.of(
             "gui.items", "gui.admin.items", "gui.events.items", "gui.creator.items", "auto-messages.groups",
             "chat-events.events");
@@ -28,6 +28,7 @@ public final class ConfigUpgrader {
             merge(current, defaults, "");
             if (previousVersion < 9) migratePresentationV9(current);
             if (previousVersion < 10) migrateChatEventsV10(current, defaults);
+            if (previousVersion < 11) migrateNetworkV11(current, defaults);
             // Preserve administrator-owned GUI collections. Add only cross-page entry points that are known-safe.
             copySectionIfMissing(current, defaults, "gui.admin.items.chat-events");
             current.set("config-version", VERSION);
@@ -35,6 +36,21 @@ public final class ConfigUpgrader {
         ConfigurationSection chatEvents = current.getConfigurationSection("chat-events");
         if (chatEvents != null) ChatEventValidation.validate(chatEvents);
         return upgraded;
+    }
+
+    /** Add only the new channel choice, never move administrator buttons or fill an intentionally empty GUI. */
+    private static void migrateNetworkV11(YamlConfiguration current, YamlConfiguration defaults) {
+        ConfigurationSection items = current.getConfigurationSection("gui.items");
+        if (items == null || items.getKeys(false).isEmpty() || items.contains("universal")) return;
+        for (String id : items.getKeys(false)) if ("UNIVERSAL".equalsIgnoreCase(items.getString(id + ".action", ""))) return;
+        int size = current.getInt("gui.rows", 3) * 9;
+        Set<Integer> occupied = new HashSet<>();
+        for (String id : items.getKeys(false)) occupied.add(items.getInt(id + ".slot", -1));
+        int slot = -1;
+        // Prefer interior slots; then any remaining slot, without overwriting a button.
+        for (int index = 10; index < size - 9; index++) if (index % 9 != 0 && index % 9 != 8 && !occupied.contains(index)) { slot = index; break; }
+        if (slot < 0) for (int index = 0; index < size; index++) if (!occupied.contains(index)) { slot = index; break; }
+        if (slot >= 0) { copySectionIfMissing(current, defaults, "gui.items.universal"); current.set("gui.items.universal.slot", slot); }
     }
 
     /** v7 replaces participant-specific Bingo with one shared, automatically marked, claim-based board. */

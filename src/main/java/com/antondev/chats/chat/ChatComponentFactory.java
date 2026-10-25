@@ -26,8 +26,26 @@ public final class ChatComponentFactory {
         values.put("channel_badge", text.interactive(badge, "chat-components.channel", sender, values));
         Component separator = text.render(config.string("chat-components.separator.format", " » "), sender, values);
         values.put("separator", text.interactive(separator, "chat-components.separator", sender, values));
-        String format = channel == ChatChannel.GLOBAL ? config.getGlobalFormat() : config.getLocalFormat();
+        values.put("server", Component.text(config.string("network.server-labels." + config.string("network.instance-id", "lobby"), "Lobby")));
+        String format = config.string("channels." + id + ".format", "{player}: {message}");
         return text.render(format, sender, values);
+    }
+
+    /** Remote fields are legacy text/color only. No remote click, hover, MiniMessage or local PM token. */
+    public Component buildNetworkMessage(com.antondev.chats.protocol.Envelope packet) {
+        var config = plugin.getConfigManager();
+        var legacy = net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.builder().hexColors().build();
+        Map<String, Component> values = new HashMap<>();
+        values.put("player", legacy.deserialize(packet.display()));
+        values.put("player_name", Component.text(packet.name()));
+        values.put("rank_prefix", legacy.deserialize(packet.rank()));
+        values.put("message", legacy.deserialize(packet.body()));
+        values.put("server", Component.text(config.string("network.server-labels." + packet.server(), packet.server())));
+        values.put("server_name", values.get("server"));
+        values.put("channel", Component.text("Universal")); values.put("channel_id", Component.text("universal"));
+        values.put("channel_badge", plugin.getText().render(config.string("channels.universal.badge", "[U]"), null, values));
+        values.put("separator", plugin.getText().render(config.string("chat-components.separator.format", " » "), null, values));
+        return plugin.getText().render(config.string("channels.universal.format", "{channel_badge} [{server}] {rank_prefix}{player}: {message}"), null, values);
     }
 
     public Component buildPlayerComponent(Player player) {

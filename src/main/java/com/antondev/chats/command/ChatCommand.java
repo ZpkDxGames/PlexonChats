@@ -36,12 +36,13 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
                 }
             }
             case "channel", "ch", "c" -> { if (args.length < 2) help(sender); else changeChannel(sender, args[1]); }
-            case "local", "global" -> changeChannel(sender, sub);
+            case "local", "global", "universal" -> changeChannel(sender, sub);
             case "status" -> {
                 if (permission(sender, "plexonchats.manage")) sender.sendMessage(plugin.getConfigManager().message("status", Map.of(
                         "version", plugin.getPluginMeta().getVersion(), "discord", plugin.getDiscordBridge().status(),
                         "scheduler", plugin.getAutoMessages().status(), "events", plugin.getChatEvents().status())));
             }
+            case "network" -> { if (permission(sender, "plexonchats.manage")) diagnostic(sender, "Network bridge", plugin.getNetworkBridge().status()); }
             case "diagnostics" -> { if (permission(sender, "plexonchats.manage")) diagnostics(sender); }
             case "automessages", "automsg" -> { if (permission(sender, "plexonchats.automessages")) autoMessages(sender, args); }
             case "events", "event" -> chatEvents(sender, args);
@@ -97,6 +98,7 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
         diagnostic(sender, "Last reload", diagnostics.lastReload());
         diagnostic(sender, "Recent integration failure", diagnostics.recentIntegrationFailure());
         diagnostic(sender, "Channels", "LOCAL=" + state(plugin.getConfigManager().isLocalEnabled()) + ", GLOBAL=" + state(plugin.getConfigManager().isGlobalEnabled()));
+        diagnostic(sender, "Network bridge", plugin.getNetworkBridge().status());
         diagnostic(sender, "Public API", apiRegistered ? "REGISTERED" : "NOT REGISTERED");
         diagnostic(sender, "PlexonChatEvent", "SYNC / CANCELLABLE / PRE-DELIVERY");
         diagnostic(sender, "Preferences", "players.yml / " + (plugin.getPreferences().writable() ? "writable" : "READ-ONLY") + " / dirty=" + plugin.getPreferences().dirty());
@@ -343,8 +345,9 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
     private void help(CommandSender sender) {
         sender.sendMessage(plugin.getConfigManager().formatMessage("<gradient:#88beff:#b9d8ff><bold>PlexonChats</bold></gradient> <gray>Commands"));
         helpLine(sender, "plexonchats.gui", "/chat gui — Channel and personal settings");
-        helpLine(sender, "plexonchats.use", "/chat channel <local|global> — Select a channel");
+        helpLine(sender, "plexonchats.use", "/chat channel <local|global|universal> — Select a channel");
         helpLine(sender, "plexonchats.global", "/g [message] — Select/use global chat");
+        helpLine(sender, "plexonchats.universal", "/u [message] — Select/use network Universal chat");
         helpLine(sender, "plexonchats.local", "/l [message] — Select/use nearby chat");
         helpLine(sender, "plexonchats.tell", "/msg <player> <message> and /reply <message>");
         helpLine(sender, "plexonchats.announce", "/announce <message> — Broadcast");
@@ -365,10 +368,11 @@ public final class ChatCommand implements CommandExecutor, TabCompleter {
         if (args.length == 1) {
             options.addAll(List.of("help", "channel"));
             if (sender.hasPermission("plexonchats.gui")) options.add("gui");
-            if (sender.hasPermission("plexonchats.manage")) options.addAll(List.of("admin", "status", "diagnostics"));
+            if (sender.hasPermission("plexonchats.manage")) options.addAll(List.of("admin", "status", "diagnostics", "network"));
             if (sender.hasPermission("plexonchats.reload")) options.add("reload");
             if (sender.hasPermission("plexonchats.automessages")) options.add("automessages");
             if (sender.hasPermission("plexonchats.events")) options.add("events");
+        } else if (args.length == 2 && root.equals("network") && sender.hasPermission("plexonchats.manage")) { options.add("status");
         } else if (args.length == 2 && List.of("channel", "ch", "c").contains(root)) {
             for (ChatChannel channel : ChatChannel.values()) {
                 if (plugin.getConfigManager().isChannelEnabled(channel) && sender.hasPermission(channel.getPermission())) options.add(channel.name().toLowerCase(Locale.ROOT));
