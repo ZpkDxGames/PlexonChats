@@ -142,11 +142,10 @@ public final class ChatManager {
             List<UUID> originViewers = event.getRecipients().stream().filter(player -> canReceive(player, channel))
                     .filter(player -> allowedViewers == null || allowedViewers.contains(player.getUniqueId()))
                     .map(Player::getUniqueId).distinct().toList();
-            var legacy = net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.builder().hexColors().build();
             var packet = bridge.envelope(sender,
-                    legacy.serialize(plugin.getChatComponentFactory().buildPlayerComponent(sender)),
-                    legacy.serialize(plugin.getPlayerInfoService().buildRankPrefix(sender)),
-                    legacy.serialize(event.getMessage()), originViewers, restricted);
+                    com.antondev.chats.network.NetworkText.encode(plugin.getChatComponentFactory().buildPlayerComponent(sender)),
+                    com.antondev.chats.network.NetworkText.encode(plugin.getPlayerInfoService().buildRankPrefix(sender)),
+                    com.antondev.chats.network.NetworkText.encode(event.getMessage()), originViewers, restricted);
             Component formatted = plugin.getChatComponentFactory().buildPublicMessage(sender, channel, event.getMessage());
             bridge.submit(sender, packet, () -> deliver(sender, channel, event, formatted, originViewers,
                     processed.mentionedPlayers(), allowedViewers));

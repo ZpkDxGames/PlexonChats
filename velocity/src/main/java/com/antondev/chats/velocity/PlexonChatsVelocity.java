@@ -44,7 +44,7 @@ public final class PlexonChatsVelocity {
                             .flatMap(player->player.getCurrentServer()).filter(connection->connection.getServerInfo().getName().equals(backend)).isPresent();
                 }
                 public Set<UUID> audience(String backend){return proxy.getServer(backend).map(server->server.getPlayersConnected().stream().map(com.velocitypowered.api.proxy.Player::getUniqueId).collect(java.util.stream.Collectors.toSet())).orElse(Set.of());}
-                public boolean send(String backend,byte[] data){return proxy.getServer(backend).map(server->server.sendPluginMessage(CHANNEL,data)).orElse(false);}
+                public boolean send(String backend,byte[] data){try{return proxy.getServer(backend).map(server->server.sendPluginMessage(CHANNEL,data)).orElse(false);}catch(RuntimeException ex){return false;}}
             },capacity);
             worker=proxy.getScheduler().buildTask(this,()->relay.drain(System.currentTimeMillis())).repeat(50,TimeUnit.MILLISECONDS).schedule();
             proxy.getCommandManager().register(proxy.getCommandManager().metaBuilder("plexonchatsbridge").plugin(this).build(),new com.velocitypowered.api.command.SimpleCommand(){
@@ -52,7 +52,7 @@ public final class PlexonChatsVelocity {
                 public boolean hasPermission(Invocation invocation){return invocation.source().hasPermission("plexonchats.bridge.manage");}
             });
             logger.info("PlexonChats Velocity bridge active, protocol {}, {} backends",Protocol.VERSION,keys.size());
-        }catch(IOException|IllegalArgumentException ex){logger.error("PlexonChats bridge unavailable: {}. Local Paper chat remains independent.",ex.getClass().getSimpleName());}
+        }catch(IOException|RuntimeException ex){if(worker!=null)worker.cancel();if(relay!=null)relay.close();relay=null;logger.error("PlexonChats bridge unavailable: {}. Local Paper chat remains independent.",ex.getClass().getSimpleName());}
     }
     @Subscribe public void message(PluginMessageEvent event) {
         if(!CHANNEL.equals(event.getIdentifier()))return;
