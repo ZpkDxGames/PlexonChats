@@ -5,7 +5,8 @@
 | Command | Permission | Purpose |
 | --- | --- | --- |
 | `/chat gui` | `plexonchats.gui` | Open player chat/preferences GUI. |
-| `/chat channel <local|global>` | channel permission | Select outgoing channel. |
+| `/chat channel <local|global|universal>` | channel permission | Select outgoing channel. |
+| `/u [message]` | `plexonchats.universal` | Select/use UNIVERSAL network chat. |
 | `/g [message]` | `plexonchats.global` | Select/use GLOBAL chat. |
 | `/l [message]` | `plexonchats.local` | Select/use LOCAL chat. |
 | `/msg <player> <message>` | `plexonchats.tell` | Send private message. |
@@ -47,6 +48,7 @@ Bingo card cells internally call `/bingo mark <run-id> <number>`. That route is 
 | --- | --- | --- |
 | `/chat admin` | `plexonchats.manage` | Open administration GUI. |
 | `/chat status` | `plexonchats.manage` | Inspect runtime/integration state. |
+| `/chat network status` | `plexonchats.manage` | Read-only bridge health and counters. |
 | `/chat diagnostics` | `plexonchats.manage` | Inspect diagnostics without leaking secrets. |
 | `/chat reload` | `plexonchats.reload` | Transactionally reload `config.yml` and `data.yml`. |
 | `/chat automessages ...` | `plexonchats.automessages` | Manage scheduled messages. |

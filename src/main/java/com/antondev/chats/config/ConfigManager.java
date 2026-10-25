@@ -110,7 +110,7 @@ public final class ConfigManager {
         if (yaml.getInt("config-version", 1) > ConfigUpgrader.VERSION) {
             throw new IllegalArgumentException("This configuration was made by a newer PlexonChats version.");
         }
-        for (String path : List.of("channels", "channels.local", "channels.global", "chat-components", "gui",
+        for (String path : List.of("channels", "channels.local", "channels.global", "channels.universal", "network", "network.server-labels", "chat-components", "gui",
                 "gui.items", "gui.admin", "gui.admin.items", "gui.creator", "gui.creator.items",
                 "auto-messages", "auto-messages.groups", "integrations", "integrations.discordsrv", "messages",
                 "connection-messages", "connection-messages.join", "connection-messages.quit")) {
@@ -118,12 +118,13 @@ public final class ConfigManager {
                 throw new IllegalArgumentException(path + " must be a YAML section (use {} for an empty collection).");
             }
         }
-        for (String channel : List.of("local", "global")) {
+        for (String channel : List.of("local", "global", "universal")) {
             String format = yaml.getString("channels." + channel + ".format", "{player}: {message}");
             if (!format.contains("{message}")) throw new IllegalArgumentException("channels." + channel + ".format must include {message}.");
             validateMiniMessage("channels." + channel + ".format", format);
             validateMiniMessage("channels." + channel + ".badge", yaml.getString("channels." + channel + ".badge", ""));
         }
+        com.antondev.chats.network.NetworkConfig.validate(yaml);
         for (String kind : List.of("join", "quit")) {
             String mode = yaml.getString("connection-messages." + kind + ".mode", "DEFAULT").toUpperCase(Locale.ROOT);
             if (!List.of("DEFAULT", "CUSTOM", "HIDDEN").contains(mode)) {
@@ -291,7 +292,7 @@ public final class ConfigManager {
         if (channel == null) channel = ChatChannel.LOCAL;
         return isChannelEnabled(channel) ? channel : (isGlobalEnabled() ? ChatChannel.GLOBAL : ChatChannel.LOCAL);
     }
-    public boolean isChannelEnabled(ChatChannel channel) { return channel == ChatChannel.GLOBAL ? isGlobalEnabled() : isLocalEnabled(); }
+    public boolean isChannelEnabled(ChatChannel channel) { return bool("channels." + channel.name().toLowerCase(Locale.ROOT) + ".enabled", true); }
     public boolean isLocalEnabled() { return bool("channels.local.enabled", true); }
     public int getLocalRadius() { return integer("channels.local.radius", 100, 0, 100_000); }
     public String getLocalFormat() { return string("channels.local.format", "{player}: {message}"); }

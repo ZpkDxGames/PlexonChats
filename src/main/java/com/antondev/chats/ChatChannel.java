@@ -5,7 +5,8 @@ package com.antondev.chats;
  */
 public enum ChatChannel {
     LOCAL("Local", "plexonchats.local"),
-    GLOBAL("Global", "plexonchats.global");
+    GLOBAL("Global", "plexonchats.global"),
+    UNIVERSAL("Universal", "plexonchats.universal");
 
     private final String displayName;
     private final String permission;

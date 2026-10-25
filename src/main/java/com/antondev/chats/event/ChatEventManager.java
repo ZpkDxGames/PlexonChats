@@ -164,6 +164,7 @@ public final class ChatEventManager {
 
     /** Called only from the accepted native Minecraft public-chat route. */
     public boolean acceptAnswer(Player player, ChatChannel channel, String rawAnswer) {
+        if (channel == ChatChannel.UNIVERSAL) return false;
         BingoRun bingo = activeBingo.get();
         if (bingo != null) {
             if (!rawAnswer.trim().equalsIgnoreCase("bingo") || !bingo.definition().acceptedChannels().contains(channel)) return false;

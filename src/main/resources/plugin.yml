@@ -1,7 +1,7 @@
 name: PlexonChats
 version: '${project.version}'
 main: com.antondev.chats.PlexonChats
-api-version: '26.2'
+api-version: '26.3'
 description: A powerful, configurable chat management plugin for Paper servers
 authors: [Tonim, ZpkDxGames]
 softdepend:
@@ -21,6 +21,10 @@ commands:
   bingo:
     description: Join, view, mark and claim participant-owned Bingo rounds
     usage: /bingo [join|leave|claim|start [now]|stop|status]
+  u:
+    description: Select or send network-wide Universal chat
+    usage: /u [message]
+    permission: plexonchats.universal
   g:
     description: Quick global chat shortcut
     usage: /g <message>
@@ -52,6 +56,9 @@ commands:
 permissions:
   plexonchats.use:
     description: Allows using the /chat command
+    default: true
+  plexonchats.universal:
+    description: Allows using Universal network chat
     default: true
   plexonchats.global:
     description: Allows using global chat
@@ -98,6 +105,7 @@ permissions:
     children:
       plexonchats.use: true
       plexonchats.global: true
+      plexonchats.universal: true
       plexonchats.local: true
       plexonchats.mention: true
       plexonchats.item: true

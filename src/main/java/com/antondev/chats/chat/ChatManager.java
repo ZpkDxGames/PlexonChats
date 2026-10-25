@@ -59,16 +59,15 @@ public final class ChatManager {
 
     /** Native public-chat route. Command shortcuts use sendPublic directly and therefore cannot win Chat Events. */
     public void route(Player sender, String raw, Set<UUID> allowedViewers) {
-        String global = plugin.getConfigManager().getGlobalShortcutPrefix();
-        String local = plugin.getConfigManager().getLocalShortcutPrefix();
         ChatChannel channel = getPlayerChannel(sender);
-        if (!global.isEmpty() && raw.startsWith(global) && (local.isEmpty() || !raw.startsWith(local) || global.length() >= local.length())) {
-            channel = ChatChannel.GLOBAL;
-            raw = raw.substring(global.length());
-        } else if (!local.isEmpty() && raw.startsWith(local)) {
-            channel = ChatChannel.LOCAL;
-            raw = raw.substring(local.length());
+        String longest = "";
+        for (ChatChannel candidate : ChatChannel.values()) {
+            String prefix = plugin.getConfigManager().string("channels." + candidate.name().toLowerCase(java.util.Locale.ROOT) + ".shortcut-prefix", "");
+            if (!prefix.isEmpty() && raw.startsWith(prefix) && prefix.length() > longest.length()) {
+                channel = candidate; longest = prefix;
+            }
         }
+        if (!longest.isEmpty()) raw = raw.substring(longest.length());
         sendPublic(sender, channel, raw, allowedViewers, true);
     }
 
@@ -104,14 +103,14 @@ public final class ChatManager {
 
     private void sendPublic(Player sender, ChatChannel channel, String raw, Set<UUID> allowedViewers, boolean nativePublicChat) {
         if (!checkChannel(sender, channel) || !validateStructure(sender, raw)) return;
-        boolean activeCompetition = nativePublicChat && plugin.getChatEvents() != null && plugin.getChatEvents().hasActiveEvent();
+        boolean activeCompetition = nativePublicChat && channel != ChatChannel.UNIVERSAL && plugin.getChatEvents() != null && plugin.getChatEvents().hasActiveEvent();
         // Preserve the stable inactive path exactly: moderation happens before placeholder/event work when no competition is active.
         if (!activeCompetition && !validateRateLimit(sender, raw)) return;
 
         Set<Player> recipients = new LinkedHashSet<>();
         var location = sender.getLocation();
         double radius = plugin.getConfigManager().getLocalRadius();
-        var candidates = channel == ChatChannel.GLOBAL ? Bukkit.getOnlinePlayers() : sender.getWorld().getPlayers();
+        var candidates = channel == ChatChannel.LOCAL ? sender.getWorld().getPlayers() : Bukkit.getOnlinePlayers();
         for (Player recipient : candidates) {
             if (allowedViewers != null && !allowedViewers.contains(recipient.getUniqueId())) continue;
             if (!canReceive(recipient, channel)) continue;
@@ -119,6 +118,7 @@ public final class ChatManager {
             recipients.add(recipient);
         }
 
+        Set<Player> originalRecipients = Set.copyOf(recipients);
         var processed = plugin.getPlaceholderHandler().processMessage(sender, raw);
         PlexonChatEvent event = new PlexonChatEvent(sender, channel, raw, processed.component(), recipients);
         Bukkit.getPluginManager().callEvent(event);
@@ -132,10 +132,38 @@ public final class ChatManager {
         if (activeCompetition && plugin.getChatEvents().acceptAnswer(sender, channel, raw)) return;
         if (activeCompetition && !validateRateLimit(sender, raw)) return;
 
+        // Keep competition authority local even if an administrator adds UNIVERSAL to accepted-channels.
+        if (channel == ChatChannel.UNIVERSAL) {
+            var bridge = plugin.getNetworkBridge();
+            if (bridge == null || !bridge.ready()) { if (bridge != null) bridge.unavailable(sender); return; }
+            boolean restricted = !event.getRecipients().containsAll(originalRecipients)
+                    || (allowedViewers != null && Bukkit.getOnlinePlayers().stream()
+                        .filter(player -> canReceive(player, channel)).anyMatch(player -> !allowedViewers.contains(player.getUniqueId())));
+            List<UUID> originViewers = event.getRecipients().stream().filter(player -> canReceive(player, channel))
+                    .filter(player -> allowedViewers == null || allowedViewers.contains(player.getUniqueId()))
+                    .map(Player::getUniqueId).distinct().toList();
+            var packet = bridge.envelope(sender,
+                    com.antondev.chats.network.NetworkText.encode(plugin.getChatComponentFactory().buildPlayerComponent(sender)),
+                    com.antondev.chats.network.NetworkText.encode(plugin.getPlayerInfoService().buildRankPrefix(sender)),
+                    com.antondev.chats.network.NetworkText.encode(event.getMessage()), originViewers, restricted);
+            Component formatted = plugin.getChatComponentFactory().buildPublicMessage(sender, channel, event.getMessage());
+            bridge.submit(sender, packet, () -> deliver(sender, channel, event, formatted, originViewers,
+                    processed.mentionedPlayers(), allowedViewers));
+            return;
+        }
         Component formatted = plugin.getChatComponentFactory().buildPublicMessage(sender, channel, event.getMessage());
+        deliver(sender, channel, event, formatted, null, processed.mentionedPlayers(), allowedViewers);
+    }
+
+    private void deliver(Player sender, ChatChannel channel, PlexonChatEvent event, Component formatted,
+                         List<UUID> originViewers, List<Player> mentioned, Set<UUID> allowedViewers) {
         Set<Player> onlineRecipients = new LinkedHashSet<>();
         for (Player player : event.getRecipients()) {
-            if (!player.isOnline()) continue;
+            if (!player.isOnline() || !canReceive(player, channel)) continue;
+            if (allowedViewers != null && !allowedViewers.contains(player.getUniqueId())) continue;
+            if (originViewers != null && !originViewers.contains(player.getUniqueId())) continue;
+            if (channel == ChatChannel.LOCAL && (!player.getWorld().equals(sender.getWorld())
+                    || player.getLocation().distanceSquared(sender.getLocation()) > Math.pow(plugin.getConfigManager().getLocalRadius(), 2))) continue;
             player.sendMessage(formatted);
             onlineRecipients.add(player);
         }
@@ -145,7 +173,7 @@ public final class ChatManager {
             sender.sendMessage(plugin.getConfigManager().getNoRecipients());
         }
         if (plugin.getConfigManager().bool("chat.log-to-console", true)) Bukkit.getConsoleSender().sendMessage(formatted);
-        List<Player> mentions = processed.mentionedPlayers().stream().filter(onlineRecipients::contains).toList();
+        List<Player> mentions = mentioned.stream().filter(onlineRecipients::contains).toList();
         plugin.getPlaceholderHandler().notifyMentionedPlayers(mentions, sender);
         if (channel == ChatChannel.GLOBAL && event.isDiscordAllowed()) plugin.getDiscordBridge().sendChat(event);
     }

@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.1.0-SNAPSHOT — TonimNetwork Universal chat candidate
+
+- Adds UNIVERSAL across Lobby/SMP/Towny, `/u`, selection aliases, permissions, source labels, safe remote rendering, GUI state and saved preferences.
+- Preserves same-backend GLOBAL, inclusive same-world LOCAL, public API descriptors, native moderation/viewer restrictions, PMs, local events/Bingo/rewards/SQLite and GLOBAL-only Discord behavior.
+- Adds independent Java 25 protocol/Paper/Velocity modules, pinned Paper 26.3 and Velocity 4.3.0 APIs, authenticated per-backend plugin messaging, current connection validation, generation handshakes, bounded queues, snapshots, replay protection, partial/unavailable diagnostics and lifecycle cleanup.
+- Adds schema 11 migration with exact backup and collision-free GUI insertion; resolves historical v8 bundled/v10 runtime drift by materializing shipped stock templates. Administrator data and empty/custom collections remain authoritative.
+- Adds protocol, relay, security, queue, migration and Paper Universal regression tests; retains the original 154 tests. MockBukkit upgraded to26.3 with an explicit async-worker wait in the Discord regression.
+- Adds staging examples, protocol/threat model, acceptance/test matrix, checksum/provenance tooling and rollback runbook. Live runtime certification remains NOT RUN. No stable release, production change or merge.
+
+
 ## 4.0.1 — aligned Bingo table renderer and configurable call pacing
 
 ### Added

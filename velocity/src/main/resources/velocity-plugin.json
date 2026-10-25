@@ -1,0 +1,1 @@
+{"id":"plexonchats-velocity","name":"PlexonChats-Velocity","version":"${project.version}","description":"Bounded authenticated Universal chat relay","authors":["Tonim","ZpkDxGames"],"main":"com.antondev.chats.velocity.PlexonChatsVelocity"}

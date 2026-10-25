@@ -59,6 +59,7 @@ public final class TextService {
             case "radius" -> Component.text(plugin.getConfigManager().getLocalRadius());
             case "channel" -> player == null ? Component.empty() : Component.text(plugin.getChatManager().getPlayerChannel(player).getDisplayName());
             case "global_shortcut" -> Component.text(plugin.getConfigManager().getGlobalShortcutPrefix());
+            case "network_status" -> Component.text(plugin.getNetworkBridge() != null && plugin.getNetworkBridge().ready() ? "Ready" : "Unavailable");
             case "discord_status" -> Component.text(plugin.getDiscordBridge().status());
             case "auto_groups" -> Component.text(plugin.getAutoMessages().groupNames().size());
             case "auto_status" -> Component.text(plugin.getAutoMessages().status());

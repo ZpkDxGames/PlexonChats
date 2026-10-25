@@ -1,10 +1,10 @@
 # ============================================================
-# PlexonChats 3.6 — Discord Chat Events / Paper 26.2 / Java 25
+# PlexonChats 4.1 candidate — TonimNetwork / Paper 26.3 / Java 25
 # All admin-owned text supports MiniMessage. UTF-8, spaces only.
 # /chat reload validates the complete candidate before activation.
 # Existing settings are retained, with a backup before schema migration.
 # ============================================================
-config-version: 8
+config-version: 11
 server-name: "Plexon"
 default-channel: LOCAL
 
@@ -23,6 +23,23 @@ channels:
     badge: "<gradient:#6ea8ff:#88beff>[G]</gradient>"
     shortcut-prefix: "!"
     receive-permission: ""
+  universal:
+    enabled: true
+    format: "{channel_badge} <dark_gray>[{server}]</dark_gray> {rank_prefix}{player}{separator}<white>{message}"
+    badge: "<gradient:#63e6ef:#72aaff>[U]</gradient>"
+    shortcut-prefix: ""
+    receive-permission: ""
+
+network:
+  enabled: false
+  instance-id: lobby
+  allowed-server-ids: [lobby, smp, towny]
+  server-labels:
+    lobby: Lobby
+    smp: SMP
+    towny: Towny
+  authentication-key-file: network.key
+  queue-capacity: 256
 
 chat-components:
   player:
@@ -147,6 +164,15 @@ gui:
       glow-when-active: true
       name: "<gradient:#6ea8ff:#88beff><bold>Global chat</bold></gradient>"
       lore: ["<gray>Talk across the server.", "<gray>Shortcut <dark_gray>› <white>{global_shortcut}", "", "{state}"]
+    universal:
+      slot: 11
+      action: UNIVERSAL
+      material: ENDER_EYE
+      active-material: LIME_CONCRETE
+      disabled-material: GRAY_DYE
+      glow-when-active: true
+      name: "<aqua><bold>[U] Universal chat</bold></aqua>"
+      lore: ["<gray>Talk across Lobby, SMP and Towny.", "<gray>Command <dark_gray>› <white>/u [message]", "<gray>Connection <dark_gray>› <white>{network_status}", "", "{state}"]
     mentions:
       slot: 14
       action: TOGGLE_MENTIONS
@@ -209,7 +235,7 @@ gui:
         action: PREVIEW_FORMAT
         material: NAME_TAG
         name: "<aqua><bold>Preview chat formats</bold></aqua>"
-        lore: ["<gray>Show local/global previews only to you.", "<gray>Hover your nickname to inspect it."]
+        lore: ["<gray>Show all three channel previews only to you.", "<gray>Hover your nickname to inspect it."]
       integration:
         slot: 16
         action: NONE
@@ -430,34 +456,31 @@ chat-events:
       REVERSE: "Reverse"
       BINGO: "Bingo"
     start:
-      - "{separator}"
-      - "<gradient:#55ffff:#1597ff><bold>CHAT EVENT</bold></gradient> <dark_gray>•</dark_gray> <aqua>{event_name}</aqua>"
-      - "<gray>{description}</gray>"
-      - ""
-      - "<white>{prompt}</white>"
-      - ""
-      - "<gray>Reward:</gray> <gold>{reward}</gold>"
-      - "<gray>Time:</gray> <yellow>{duration_seconds}s</yellow>"
-      - "{separator}"
+    - '{separator}'
+    - <gradient:#55ffff:#1597ff><bold>✦ {event_type}</bold></gradient> <dark_gray>•</dark_gray> <hover:show_text:'<gray>First correct answer wins.</gray><newline><gray>Answer
+      in LOCAL or GLOBAL public chat.</gray>'><aqua>HOW TO PLAY ⓘ</aqua></hover>
+    - <white>{prompt}</white>
+    - <hover:show_text:'<gray>Event reward</gray>'><gold>◆ {reward}</gold></hover> <dark_gray>•</dark_gray> <hover:show_text:'<gray>Time limit</gray>'><yellow>⏱ {duration_seconds}s</yellow></hover>
+      <dark_gray>•</dark_gray> <gray>first correct answer wins</gray>
+    - '{separator}'
     winner:
-      - "{separator}"
-      - "<green><bold>CHAT EVENT COMPLETE</bold></green>"
-      - "<white>{winner}</white> <gray>won in</gray> <aqua>{elapsed}</aqua>"
-      - "<gray>Reward:</gray> <gold>{reward}</gold>"
-      - "<gray>Total wins:</gray> <yellow>{winner_total_wins}</yellow>"
-      - "<gray>{event_type} wins:</gray> <yellow>{winner_type_wins}</yellow>"
-      - "{separator}"
+    - '{separator}'
+    - <green><bold>✔ {event_type} COMPLETE</bold></green>
+    - <gold>♛</gold> <hover:show_text:'<gray>Chat Event wins</gray><newline><gray>Total:</gray> <yellow>{winner_total_wins}</yellow><newline><gray>{event_type}:</gray>
+      <yellow>{winner_type_wins}</yellow>'><white>{winner}</white></hover> <dark_gray>•</dark_gray> <aqua>{elapsed}</aqua>
+    - <gray>Answer</gray> <dark_gray>›</dark_gray> <white>{answer}</white>
+    - <hover:show_text:'<gray>Reward granted to the winner.</gray>'><gold>◆ {reward}</gold></hover>
+    - '{separator}'
     timeout:
-      - "{separator}"
-      - "<yellow><bold>CHAT EVENT ENDED</bold></yellow>"
-      - "<gray>No winner this round.</gray>"
-      - "<gray>Answer:</gray> <white>{answer}</white>"
-      - "{separator}"
+    - '{separator}'
+    - <yellow><bold>⌛ {event_type} EXPIRED</bold></yellow>
+    - <gray>No correct answer</gray> <dark_gray>•</dark_gray> <gray>Answer</gray> <dark_gray>›</dark_gray> <white>{answer}</white>
+    - '{separator}'
     cancelled:
-      - "{separator}"
-      - "<gray><bold>CHAT EVENT CANCELLED</bold></gray>"
-      - "<gray>No reward or win statistic was issued.</gray>"
-      - "{separator}"
+    - '{separator}'
+    - <red><bold>✕ {event_type} CANCELLED</bold></red>
+    - <gray>Stopped by staff <dark_gray>•</dark_gray> no reward issued</gray>
+    - '{separator}'
 
   # Discord is presentation-only in v3.6.0. Minecraft remains authoritative for answers, claims and rewards.
   discord:
@@ -510,15 +533,19 @@ chat-events:
       full-house: false
     messages:
       start:
-        - "{separator}"
-        - "<gold><bold>BINGO</bold></gold> <gray>Watch the shared board and claim the first completed pattern.</gray>"
-        - "<gray>Use <white>/bingo claim</white> or type <white>bingo</white> in public chat.</gray>"
-        - "<gray>First call in:</gray> <yellow>5s</yellow>"
-        - "{separator}"
+      - '{separator}'
+      - <gold><bold>✦ BINGO</bold></gold> <dark_gray>•</dark_gray> <hover:show_text:'<gray>Complete any enabled line on the shared board.</gray><newline><gray>Marks are
+        automatic.</gray><newline><gray>Claim with /bingo claim or type bingo.</gray>'><aqua>HOW TO PLAY ⓘ</aqua></hover>
+      - <gray>Shared 75-ball board <dark_gray>•</dark_gray> automatic marking <dark_gray>•</dark_gray> no FREE center</gray>
+      - <hover:show_text:'<gray>Event reward</gray>'><gold>◆ {reward}</gold></hover> <dark_gray>•</dark_gray> <yellow>⏱ {duration_seconds}s</yellow> <dark_gray>•</dark_gray>
+        <aqua>◈ first call {next_draw}</aqua>
+      - '{separator}'
       draw:
-        - "<gold>[BINGO]</gold> <gray>Call</gray> <yellow>#{draw_count}</yellow><gray>:</gray> <white>{drawn_number}</white>"
+      - <gold>◈ BINGO</gold> <dark_gray>•</dark_gray> <white>{drawn_number}</white> <dark_gray>•</dark_gray> <gray>{draw_count}/75 called</gray> <dark_gray>•</dark_gray>
+        <aqua>next {next_draw}</aqua>
       invalid-claim:
-        - "<yellow>[BINGO] No enabled winning pattern is complete yet.</yellow>"
+      - <yellow>⚠ Claim rejected</yellow> <dark_gray>•</dark_gray> <gray>no completed pattern yet</gray> <hover:show_text:'<gray>Keep watching the shared board; marks are
+        automatic.</gray>'><aqua>ⓘ</aqua></hover>
 
   reward-profiles:
     basic:
@@ -557,8 +584,38 @@ chat-events:
       weight: 12
       cooldown-seconds: 1800
       reward-profile: basic
-      values: ["bingo", "plexon", "diamond", "redstone"]
-      prompt: "<gray>Type <yellow>\"{value}\"</yellow> before anyone else!</gray>"
+      values:
+      - creeper
+      - enderman
+      - diamond
+      - redstone
+      - elytra
+      - netherite
+      - axolotl
+      - warden
+      - beacon
+      - totem
+      - trident
+      - shulker
+      - allay
+      - anvil
+      - observer
+      - piston
+      - amethyst
+      - slime
+      - blaze
+      - ghast
+      - villager
+      - emerald
+      - pickaxe
+      - crafting
+      - respawn
+      - bedrock
+      - mending
+      - fortune
+      - silktouch
+      - plexon
+      prompt: <gray>Type:</gray> <yellow>"{value}"</yellow>
     unscramble:
       enabled: true
       name: "Unscramble"
@@ -566,8 +623,43 @@ chat-events:
       weight: 10
       cooldown-seconds: 1800
       reward-profile: rare
-      words: ["diamond", "redstone", "village", "elytra", "netherite"]
-      prompt: "<gray>Unscramble <aqua>{scrambled}</aqua>!</gray>"
+      words:
+      - diamond
+      - redstone
+      - village
+      - elytra
+      - netherite
+      - creeper
+      - enderman
+      - shulker
+      - trident
+      - beacon
+      - emerald
+      - amethyst
+      - observer
+      - piston
+      - slimeball
+      - blaze
+      - ghast
+      - warden
+      - axolotl
+      - allay
+      - pickaxe
+      - crafting
+      - furnace
+      - enchant
+      - mending
+      - fortune
+      - bedrock
+      - deepslate
+      - glowstone
+      - quartz
+      - prismarine
+      - snowball
+      - minecart
+      - bookshelf
+      - campfire
+      prompt: <gray>Rearrange:</gray> <aqua>{scrambled}</aqua>
     math-normal:
       enabled: true
       name: "Quick Math"
@@ -575,11 +667,11 @@ chat-events:
       weight: 10
       cooldown-seconds: 1200
       reward-profile: rare
-      operations: [ADD, SUBTRACT, MULTIPLY]
+      operations: [ADD, SUBTRACT, MULTIPLY, DIVIDE]
       min-operand: 2
-      max-operand: 25
+      max-operand: 40
       allow-negative-result: false
-      prompt: "<gray>What's <aqua>{expression}</aqua>?</gray>"
+      prompt: <gray>Solve:</gray> <aqua>{expression}</aqua>
     math-hard:
       enabled: true
       name: "Hard Math"
@@ -588,10 +680,10 @@ chat-events:
       cooldown-seconds: 3600
       reward-profile: epic
       operations: [MULTIPLY, DIVIDE]
-      min-operand: 8
-      max-operand: 75
+      min-operand: 12
+      max-operand: 125
       allow-negative-result: false
-      prompt: "<gray>Solve <red>{expression}</red>!</gray>"
+      prompt: <gray>Solve:</gray> <red>{expression}</red>
     trivia:
       enabled: true
       name: "Trivia"
@@ -600,10 +692,54 @@ chat-events:
       cooldown-seconds: 2400
       reward-profile: rare
       entries:
-        - question: "Which dimension contains End Cities?"
-          accepted-answers: ["the end", "end"]
-        - question: "Which ore is required to craft an enchanting table?"
-          accepted-answers: ["diamond", "diamonds"]
+      - question: Which dimension contains End Cities?
+        accepted-answers:
+        - the end
+        - end
+      - question: Which ore is required to craft an enchanting table?
+        accepted-answers:
+        - diamond
+        - diamonds
+      - question: Which mob drops blaze rods?
+        accepted-answers:
+        - blaze
+        - blazes
+      - question: What item is used to activate a Nether portal frame?
+        accepted-answers:
+        - flint and steel
+        - flint & steel
+      - question: Which block lets you set a respawn point in the Nether?
+        accepted-answers:
+        - respawn anchor
+        - anchor
+      - question: Which mob can teleport and becomes angry when stared at?
+        accepted-answers:
+        - enderman
+        - endermen
+      - question: What mineral is the main trading currency for villagers?
+        accepted-answers:
+        - emerald
+        - emeralds
+      - question: Which structure contains the End portal?
+        accepted-answers:
+        - stronghold
+        - a stronghold
+      - question: What item lets a player glide through the air?
+        accepted-answers:
+        - elytra
+        - an elytra
+      - question: Which hostile mob explodes near players?
+        accepted-answers:
+        - creeper
+        - a creeper
+      - question: Which dimension is home to piglins?
+        accepted-answers:
+        - nether
+        - the nether
+      - question: Which block stores experience and enchantments on gear through books?
+        accepted-answers:
+        - anvil
+        - an anvil
       prompt: "<gray>{question}</gray>"
     reverse:
       enabled: true
@@ -612,8 +748,33 @@ chat-events:
       weight: 6
       cooldown-seconds: 1800
       reward-profile: basic
-      values: ["craft", "redstone", "plexon", "diamond"]
-      prompt: "<gray>Reverse <aqua>{value}</aqua>!</gray>"
+      values:
+      - creeper
+      - enderman
+      - diamond
+      - redstone
+      - elytra
+      - netherite
+      - beacon
+      - trident
+      - shulker
+      - amethyst
+      - observer
+      - piston
+      - villager
+      - emerald
+      - pickaxe
+      - crafting
+      - furnace
+      - mending
+      - fortune
+      - bedrock
+      - deepslate
+      - glowstone
+      - quartz
+      - minecart
+      - plexon
+      prompt: <gray>Text:</gray> <aqua>{value}</aqua>
     bingo-classic:
       enabled: true
       name: "Classic Bingo"
@@ -662,6 +823,9 @@ integrations:
 
 messages:
   prefix: "<bold><gradient:#88beff:#b9d8ff>PlexonChats</gradient></bold> <dark_gray>» "
+  network-unavailable: "<red>Universal chat is unavailable or delivery was not confirmed. Please try again when the bridge is ready.</red>"
+  network-partial: "<yellow>Universal chat was accepted, but one or more occupied servers could not be reached.</yellow>"
+  network-payload-invalid: "<red>This message cannot be sent safely over the network (text or audience limit).</red>"
   channel-switched: "<green>You switched to the <white>{channel}</white> channel."
   channel-already: "<yellow>You are already in the <white>{channel}</white> channel."
   channel-disabled: "<red>{channel} chat is currently disabled."

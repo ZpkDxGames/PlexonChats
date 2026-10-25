@@ -1,0 +1,11 @@
+# Merge these new keys into existing Paper config.yml; preserve default-channel and all existing data.
+network:
+  enabled: true
+  instance-id: towny
+  allowed-server-ids: [lobby, smp, towny]
+  server-labels:
+    lobby: Lobby
+    smp: SMP
+    towny: Towny
+  authentication-key-file: network.key
+  queue-capacity: 256

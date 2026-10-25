@@ -6,7 +6,7 @@ PlexonChats 4.0.1 uses two administrator-facing YAML files with separate respons
 
 ### `config.yml`
 
-`config.yml` remains schema **v10** and owns presentation/integration concerns, including:
+`config.yml` is now schema **v11** (additive network migration, exact backup) and owns presentation/integration concerns, including:
 
 - chat formats and channels;
 - GUI and player-facing presentation;
@@ -186,3 +186,12 @@ When `data.yml` is absent, PlexonChats creates `config-before-v4-<timestamp>.yml
 `/chat reload` reloads `config.yml` and `data.yml` as one runtime generation. Invalid structural data/configuration does not silently replace the current known-good configuration. Active event/Bingo runtime state is closed through the normal manager lifecycle rather than persisted as a half-valid YAML snapshot, and stale draw tasks must not continue after reload.
 
 See [BINGO.md](BINGO.md), [CHAT-EVENTS.md](CHAT-EVENTS.md), and [UPGRADING.md](UPGRADING.md).
+
+## 4.1 TonimNetwork candidate
+
+See [network examples](network/examples/) and [migration/rollback](network/MIGRATION_AND_ROLLBACK.md).
+network.enabled defaults false, channels.universal is independently selectable,
+instance-id must match the proxy, and dedicated per-backend .key files authenticate
+traffic. Universal formats require {server} and {message}; equal nonempty shortcut
+prefixes and invalid queue/ID/key paths reject the entire candidate. No credential
+is embedded in YAML examples. data.yml remains schema1 and untouched.

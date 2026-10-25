@@ -1,7 +1,7 @@
 package com.antondev.chats.gui;
 
 public enum GuiAction {
-    LOCAL, GLOBAL, TOGGLE_MENTIONS, TOGGLE_TIPS, TOGGLE_PRIVATE_MESSAGES,
+    LOCAL, GLOBAL, UNIVERSAL, TOGGLE_MENTIONS, TOGGLE_TIPS, TOGGLE_PRIVATE_MESSAGES,
     OPEN_ADMIN, OPEN_CREATOR, OPEN_MAIN, OPEN_CHAT_EVENTS, OPEN_EVENT_LIST, OPEN_EVENT_REWARDS,
     OPEN_EVENT_BINGO, OPEN_EVENT_STATS, OPEN_EVENT_DETAILS, EVENT_DEFINITION, EVENT_PREVIEW, EVENT_START,
     PAGE_PREVIOUS, PAGE_NEXT, RELOAD, TOGGLE_AUTO_MESSAGES,
@@ -11,6 +11,7 @@ public enum GuiAction {
     public String requiredPermission() {
         return switch (this) {
             case LOCAL -> "plexonchats.local";
+            case UNIVERSAL -> "plexonchats.universal";
             case GLOBAL -> "plexonchats.global";
             case OPEN_ADMIN, PREVIEW_FORMAT -> "plexonchats.manage";
             case OPEN_CHAT_EVENTS, OPEN_EVENT_LIST, OPEN_EVENT_REWARDS, OPEN_EVENT_BINGO, OPEN_EVENT_STATS,
