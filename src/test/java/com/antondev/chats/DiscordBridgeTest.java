@@ -85,6 +85,7 @@ class DiscordBridgeTest extends PluginTestBase {
         var sender = player("Sender");
         var local = new PlexonChatEvent(sender, ChatChannel.LOCAL, "local", Component.text("local"), Set.of(sender));
         bridge.sendChat(local);
+        bridge.sendChat(new PlexonChatEvent(sender, ChatChannel.UNIVERSAL, "network", Component.text("network"), Set.of(sender)));
         var global = new PlexonChatEvent(sender, ChatChannel.GLOBAL, "cancelled", Component.text("cancelled"), Set.of(sender));
         global.setCancelled(true);
         bridge.sendChat(global);
@@ -104,7 +105,7 @@ class DiscordBridgeTest extends PluginTestBase {
         bridge.sendChat(event);
         assertEquals(tasksBefore, server.getScheduler().getPendingTasks().size(), "Discord export must not create one Bukkit task per chat message");
         drainWorker();
-        verify(discord, times(3)).processChatMessage(sender, "filtered @\u200Beveryone", "global", false, event);
+        verify(discord, timeout(2000).times(3)).processChatMessage(sender, "filtered @\u200Beveryone", "global", false, event);
     }
 
     @Test void incomingMessageIsDeliveredOnceWithoutEcho() {

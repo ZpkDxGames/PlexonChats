@@ -25,7 +25,7 @@ class UniversalChatTest extends PluginTestBase {
         var field=plugin.getNetworkBridge().getClass().getDeclaredField("hello");field.setAccessible(true);
         UUID nonce=(UUID)field.get(plugin.getNetworkBridge());assertNotNull(nonce);
         var player=server.getOnlinePlayers().iterator().next();
-        Envelope ack=new Envelope(Envelope.Type.READY,nonce,plugin.getNetworkBridge().session(),System.currentTimeMillis(),"lobby",player.getUniqueId(),player.getName(),"","","",null,false);
+        Envelope ack=new Envelope(Envelope.Type.READY,nonce,plugin.getNetworkBridge().session(),System.currentTimeMillis(),plugin.getConfigManager().string("network.instance-id","lobby"),player.getUniqueId(),player.getName(),"","","",null,false);
         plugin.getNetworkBridge().onPluginMessageReceived(Protocol.CHANNEL,player,Protocol.encode(ack,key));
         server.getScheduler().performOneTick();assertTrue(plugin.getNetworkBridge().ready());
     }
@@ -35,8 +35,29 @@ class UniversalChatTest extends PluginTestBase {
         var value=map.values().iterator().next();var accessor=value.getClass().getDeclaredMethod("message");accessor.setAccessible(true);return (Envelope)accessor.invoke(value);
     }
     private void accept(Envelope e){
-        Envelope ack=new Envelope(Envelope.Type.ACCEPT,e.id(),e.session(),System.currentTimeMillis(),"lobby",e.author(),e.name(),"","","ACCEPTED",null,false);
+        Envelope ack=new Envelope(Envelope.Type.ACCEPT,e.id(),e.session(),System.currentTimeMillis(),e.server(),e.author(),e.name(),"","","ACCEPTED",null,false);
         plugin.getNetworkBridge().onPluginMessageReceived(Protocol.CHANNEL,server.getPlayer(e.author()),Protocol.encode(ack,key));server.getScheduler().performOneTick();
+    }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"lobby","smp","towny"})
+    void everyPaperOriginHasCorrectLabelAndOneAcceptedEcho(String origin)throws Exception {
+        var sender=player("Sender");var listener=player("Listener");enable();
+        config(yaml->yaml.set("network.instance-id",origin));ready();
+        plugin.getChatManager().sendPublic(sender,ChatChannel.UNIVERSAL,"origin check");
+        Envelope e=pending();assertEquals(origin,e.server());accept(e);
+        assertTrue(next(listener).contains("["+plugin.getConfigManager().string("network.server-labels."+origin,origin)+"]"));assertNull(next(listener));
+    }
+    @Test void paperBurstQueueHasBackpressureAndNoPerMessageTasks()throws Exception {
+        var sender=player("Sender");var listener=player("Listener");enable();
+        config(yaml->yaml.set("network.queue-capacity",1));ready();
+        int tasks=server.getScheduler().getPendingTasks().size();
+        plugin.getChatManager().sendPublic(sender,ChatChannel.UNIVERSAL,"first");Envelope e=pending();
+        plugin.getChatManager().sendPublic(sender,ChatChannel.UNIVERSAL,"second");
+        assertEquals(1,plugin.getNetworkBridge().pending());assertTrue(next(sender).contains("unavailable"));assertNull(next(listener));
+        assertEquals(tasks,server.getScheduler().getPendingTasks().size());accept(e);assertTrue(next(listener).contains("first"));assertNull(next(listener));
+    }
+    @Test void configuredBridgeWithoutPlayersHasNoCarrierAndNoHistory()throws Exception {
+        enable();server.getScheduler().performOneTick();assertTrue(plugin.getNetworkBridge().status().startsWith("NO_CARRIER"));assertEquals(0,plugin.getNetworkBridge().pending());
     }
     @Test void literalPlayerSectionCodesDoNotGainFormattingOverTransport() {
         var original=net.kyori.adventure.text.Component.text("§cLiteral \ue000 text <red>literal</red>");

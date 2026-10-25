@@ -30,7 +30,7 @@ public final class Protocol {
         try {
             var bytes = new ByteArrayOutputStream();
             var out = new DataOutputStream(bytes);
-            out.writeInt(MAGIC); out.writeShort(VERSION); out.writeByte(e.type().ordinal());
+            out.writeInt(MAGIC); out.writeShort(VERSION); out.writeByte(e.type().ordinal()); out.writeByte(1); // UNIVERSAL only
             uuid(out, e.id()); uuid(out, e.session()); out.writeLong(e.createdAt());
             if (!validServer(e.server())) throw new IllegalArgumentException("Invalid server ID");
             string(out,e.server(),32); uuid(out,e.author());
@@ -56,6 +56,7 @@ public final class Protocol {
             if(in.readUnsignedShort()!=VERSION) throw new IllegalArgumentException("Incompatible protocol");
             int type=in.readUnsignedByte();
             if(type>=Envelope.Type.values().length) throw new IllegalArgumentException("Unknown type");
+            if(in.readUnsignedByte()!=1) throw new IllegalArgumentException("Unknown channel");
             UUID id=uuid(in), session=uuid(in); long timestamp=in.readLong();
             if(timestamp<0 || timestamp<now-MAX_AGE_MS || timestamp>now+FUTURE_SKEW_MS) throw new IllegalArgumentException("Stale/future packet");
             String server=string(in,32); if(!validServer(server)) throw new IllegalArgumentException("Invalid server");
